@@ -10,8 +10,8 @@ from depth_anything_3.api import DepthAnything3
 MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE" 
 
 
-VIDEO_PATH = "../assets/video_input/room_scan.mp4"
-OUTPUT_DIR = "../data/scan_001"
+VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\video1.mp4"
+OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
 FPS_EXTRACT = 2          # Frames per second to extract (2-5 recommended for indoor)
 IMG_SIZE = 518           # Input resolution (multiple of 14, DA3 optimal)
 MAX_BATCH_SIZE = 4       # VRAM-dependent: 1-2 for 12GB, 4-8 for 24GB+
@@ -235,9 +235,8 @@ def run_da3_pipeline(image_paths, output_root):
 
 
 if __name__ == "__main__":
-    print(f"\n{'#'*60}")
-    print(f"# STEP 1: VIDEO TO DEPTH + POSES")
-    print(f"{'#'*60}\n")
+
+    print(f"STEP 1: VIDEO TO DEPTH + POSES")
     
     # Create temporary extraction directory 
     temp_img_dir = os.path.join(OUTPUT_DIR, "images_temp")
@@ -250,8 +249,8 @@ if __name__ == "__main__":
         run_da3_pipeline(frame_paths, OUTPUT_DIR)
         
         # Optional: Clean up temporary extraction folder (frames now in images/)
-        # import shutil
-        # shutil.rmtree(temp_img_dir)
+        import shutil
+        shutil.rmtree(temp_img_dir)
         
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
