@@ -119,9 +119,6 @@ def run_da3_pipeline(image_paths, output_root):
     print("Loading frames into memory...")
     images = [Image.open(p).convert("RGB") for p in image_paths]
 
-    print(f"Running DA3 inference on {len(images)} frames (multi-view mode)...\n") #multi view inference
-
-
 
 
 
@@ -144,7 +141,7 @@ def run_da3_pipeline(image_paths, output_root):
     if has_confidence:
         confidences = prediction.conf.cpu().numpy()
 
-    cam_positions = extrinsics[:, :3, 3]  # Extract translation vectors [N, 3]
+    cam_positions = extrinsics[:, :3, 3]  # Extract camera prosition from real world
     movement_range = np.linalg.norm(cam_positions.max(axis=0) - cam_positions.min(axis=0))
 
 
