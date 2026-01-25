@@ -114,7 +114,7 @@ def run_da3_pipeline(image_paths, output_root):
     print(f"{'='*60}\n")
     
     # Downloads model from Hugging Face on first run (auto-cached)
-    model = DepthAnything3.from_pretrained(MODEL_REPO).to(DEVICE).eval()
+    model = DepthAnything3.from_pretrained(MODEL_REPO, local_files_only=True).to(DEVICE).eval()
 
     print("Loading frames into memory...")
     images = [Image.open(p).convert("RGB") for p in image_paths]

@@ -3,3 +3,4 @@ video_input/
 scan_001/
 scan_001/images/
 scan_001/images_temp/
+.env
