@@ -126,8 +126,8 @@ def run_da3_pipeline(image_paths, output_root):
     with torch.no_grad():
         prediction = model.inference(
             images,
-            input_size=IMG_SIZE,           
-            max_batch_size=MAX_BATCH_SIZE  
+            # input_size=IMG_SIZE,           
+            # max_batch_size=MAX_BATCH_SIZE,
         )
 
 
