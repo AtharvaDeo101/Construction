@@ -13,15 +13,12 @@ from depth_anything_3.api import DepthAnything3
 
 
 MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"  # Changed from NESTED-GIANT-LARGE (requires 8GB vs 24GB)
-# Alternative options based on your GPU:
-# "depth-anything/DA3-BASE"               # 6GB VRAM
-# "depth-anything/DA3-SMALL"              # 4GB VRAM
-# "depth-anything/DA3NESTED-GIANT-LARGE"  # 16-24GB VRAM (original choice)
+
 
 VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\video1.mp4"
 OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
 FPS_EXTRACT = 2          # Frames per second to extract (2-5 recommended)
-IMG_SIZE = 518           # Input resolution (multiple of 14, DA3 optimal)
+IMG_SIZE = 518          
 MINI_BATCH_SIZE = 3      # Process 3 frames at a time (reduce to 2 if still OOM)
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -30,9 +27,6 @@ MIN_FRAMES = 3           # Minimum frames needed for multi-view consistency
 MAX_DEPTH_METERS = 10.0  # Clip outlier depths (typical indoor max ~8m)
 
 
-# ============================================================================
-# FUNCTION 1: EXTRACT FRAMES FROM VIDEO
-# ============================================================================
 def extract_frames(video_path, out_dir, fps=2):
     """
     Extracts frames from video at specified FPS rate.
@@ -60,7 +54,6 @@ def extract_frames(video_path, out_dir, fps=2):
 
     print(f"Video Info: {width}x{height} @ {video_fps:.2f} FPS, {total_frames} total frames")
 
-    # Calculate sampling interval
     # Example: 30 FPS video, extract at 2 FPS → take every 15th frame
     frame_interval = max(1, int(video_fps / fps))
 
@@ -96,9 +89,6 @@ def extract_frames(video_path, out_dir, fps=2):
     return frame_paths
 
 
-# ============================================================================
-# FUNCTION 2: DEPTH ANYTHING 3 PIPELINE (MEMORY-OPTIMIZED)
-# ============================================================================
 def run_da3_pipeline(image_paths, output_root):
     """
     Runs Depth Anything 3 inference in mini-batches to avoid OOM.
@@ -136,7 +126,7 @@ def run_da3_pipeline(image_paths, output_root):
         rel_frame_paths.append(f"images/{filename}")
     
     
-    # ---- Load DA3 Model ----
+
     print(f"\n{'='*60}")
     print(f"Loading {MODEL_REPO}...")
     print(f"Device: {DEVICE} | Input Size: {IMG_SIZE}x{IMG_SIZE}")
@@ -169,8 +159,8 @@ def run_da3_pipeline(image_paths, output_root):
         with torch.no_grad():
             prediction = model.inference(
                 batch_images,
-                # input_size=IMG_SIZE,              # CRITICAL: Controls memory usage
-                # max_batch_size=len(batch_images), # Process all in mini-batch together
+                # input_size=IMG_SIZE,             
+                # max_batch_size=len(batch_images), 
             )
         
         # Immediately move to CPU to free GPU memory
@@ -189,7 +179,6 @@ def run_da3_pipeline(image_paths, output_root):
         gc.collect()
     
     
-    # ---- Concatenate All Batches ----
     print("\nMerging all batches...")
     depths = np.concatenate(all_depths, axis=0)
     extrinsics = np.concatenate(all_extrinsics, axis=0)
@@ -200,7 +189,6 @@ def run_da3_pipeline(image_paths, output_root):
         confidences = np.concatenate(all_confidences, axis=0)
     
     
-    # ---- Validate Camera Poses ----
     cam_positions = extrinsics[:, :3, 3]  # Extract translation vectors
     movement_range = np.linalg.norm(cam_positions.max(axis=0) - cam_positions.min(axis=0))
 
@@ -231,17 +219,14 @@ def run_da3_pipeline(image_paths, output_root):
     for i in range(len(image_paths)):
         idx_str = f"{i:05d}"
 
-        # === 1. Save Raw Depth ===
         depth_map = depths[i]
         depth_map_clipped = np.clip(depth_map, 0, MAX_DEPTH_METERS)
         np.save(os.path.join(depth_dir, f"{idx_str}.npy"), depth_map_clipped)
 
-        # === 2. Save Confidence ===
         if has_confidence:
             conf_map = confidences[i]
             np.save(os.path.join(depth_dir, f"{idx_str}_conf.npy"), conf_map)
 
-        # === 3. Create Visualization ===
         valid_depths = depth_map_clipped[depth_map_clipped > 1e-6]
         if len(valid_depths) > 0:
             depth_max = np.percentile(valid_depths, 99.5)
@@ -252,20 +237,17 @@ def run_da3_pipeline(image_paths, output_root):
         depth_viz = (depth_norm * 255).astype(np.uint8)
         colored = cv2.applyColorMap(depth_viz, cv2.COLORMAP_TURBO)
         
-        # Overlay confidence as alpha channel if available
         if has_confidence:
             alpha = (confidences[i] * 255).astype(np.uint8)
             colored = cv2.merge([colored[:,:,0], colored[:,:,1], colored[:,:,2], alpha])
         
         cv2.imwrite(os.path.join(viz_dir, f"{idx_str}_depth.png"), colored)
 
-        # === 4. Convert Extrinsics (w2c → c2w) ===
         w2c_3x4 = extrinsics[i]
         w2c_4x4 = np.eye(4, dtype=np.float32)
         w2c_4x4[:3, :] = w2c_3x4
         c2w_4x4 = np.linalg.inv(w2c_4x4)
 
-        # === 5. Store Frame Metadata (FIXED INDENTATION) ===
         pose_data["frames"].append({
             "file_path": rel_frame_paths[i],
             "transform_matrix": c2w_4x4.tolist(),
@@ -275,13 +257,11 @@ def run_da3_pipeline(image_paths, output_root):
         })
 
     
-    # ---- Save Master JSON ----
     json_path = os.path.join(output_root, "transforms.json")
     with open(json_path, 'w') as f:
         json.dump(pose_data, f, indent=2)
 
     
-    # ---- Final Summary ----
     print(f"\n{'='*60}")
     print(f"✓ Processing Complete!")
     print(f"{'='*60}")
@@ -300,9 +280,6 @@ def run_da3_pipeline(image_paths, output_root):
     print(f"{'='*60}\n")
 
 
-# ============================================================================
-# MAIN EXECUTION
-# ============================================================================
 if __name__ == "__main__":
     print(f"\n{'#'*60}")
     print(f"# STEP 1: VIDEO TO DEPTH + POSES")
@@ -313,15 +290,12 @@ if __name__ == "__main__":
     temp_img_dir = os.path.join(OUTPUT_DIR, "images_temp")
     
     try:
-        # Phase 1: Extract frames from video
         print("Phase 1: Extracting frames from video...")
         frame_paths = extract_frames(VIDEO_PATH, temp_img_dir, fps=FPS_EXTRACT)
         
-        # Phase 2: Run DA3 depth+pose estimation
         print("\nPhase 2: Running DA3 inference...")
         run_da3_pipeline(frame_paths, OUTPUT_DIR)
         
-        # Optional: Clean up temporary extraction folder
         print("\nCleaning up temporary files...")
         import shutil
         shutil.rmtree(temp_img_dir)
