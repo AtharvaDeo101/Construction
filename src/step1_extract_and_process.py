@@ -15,8 +15,8 @@ from depth_anything_3.api import DepthAnything3
 MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"  
 
 
-VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\video1.mp4"
-OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
+VIDEO_PATH = r"C:\Users\kalea\Downloads\4095679-uhd_3840_2160_30fps.mp4"
+OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
 FPS_EXTRACT = 2          # Frames per second to extract (2-5 recommended)
 IMG_SIZE = 518          
 MINI_BATCH_SIZE = 3      # Process 3 frames at a time (reduce to 2 if still OOM)
@@ -133,7 +133,7 @@ def run_da3_pipeline(image_paths, output_root):
     print(f"Mini-batch size: {MINI_BATCH_SIZE} frames")
     print(f"{'='*60}\n")
     
-    model = DepthAnything3.from_pretrained(MODEL_REPO,local_files_only=True).to(DEVICE).eval()
+    model = DepthAnything3.from_pretrained(MODEL_REPO,local_files_only=False).to(DEVICE).eval()
     
     
     all_depths = []
