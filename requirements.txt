@@ -103,7 +103,11 @@ rosbags==0.11.0
 rpds-py==0.30.0
 ruamel.yaml==0.19.1
 safetensors==0.7.0
+<<<<<<< HEAD
 scikit-learn==1.8.0
+=======
+scikit-image==0.25.2
+>>>>>>> c8e0ea90632f7b6301f344eb14dcabb49e6267bb
 scipy==1.17.0
 seaborn==0.13.2
 setuptools==80.9.0
