@@ -12,7 +12,7 @@ from PIL import Image
 from depth_anything_3.api import DepthAnything3
 
 
-MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"  # Changed from NESTED-GIANT-LARGE (requires 8GB vs 24GB)
+MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"  
 
 
 VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\video1.mp4"
