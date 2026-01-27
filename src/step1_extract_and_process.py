@@ -1,6 +1,3 @@
-"""
-Step 1: Extract frames from video and generate depth maps + camera poses using Depth Anything 3.
-"""
 
 import os 
 import torch
@@ -15,30 +12,20 @@ from depth_anything_3.api import DepthAnything3
 MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"  
 
 
-VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\video1.mp4"
+VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\WhatsApp Video 2026-01-27 at 3.24.44 PM.mp4"
 OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
-FPS_EXTRACT = 2          # Frames per second to extract (2-5 recommended)
+FPS_EXTRACT = 2          
 IMG_SIZE = 518          
-MINI_BATCH_SIZE = 3      # Process 3 frames at a time (reduce to 2 if still OOM)
+MINI_BATCH_SIZE = 3      
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-MIN_FRAMES = 3           # Minimum frames needed for multi-view consistency
-MAX_DEPTH_METERS = 10.0  # Clip outlier depths (typical indoor max ~8m)
+MIN_FRAMES = 3           
+MAX_DEPTH_METERS = 10.0  
 
 
 def extract_frames(video_path, out_dir, fps=2):
-    """
-    Extracts frames from video at specified FPS rate.
-    
-    Args:
-        video_path: Path to input MP4/AVI video file
-        out_dir: Directory to save extracted JPG frames
-        fps: Target extraction rate (frames per second)
-        
-    Returns:
-        list: Paths to all extracted frame files
-    """
+
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
@@ -90,16 +77,8 @@ def extract_frames(video_path, out_dir, fps=2):
 
 
 def run_da3_pipeline(image_paths, output_root):
-    """
-    Runs Depth Anything 3 inference in mini-batches to avoid OOM.
-    Generates: depth maps, camera poses, intrinsics, confidence maps.
+
     
-    Args:
-        image_paths: List of paths to input frames
-        output_root: Root directory for outputs
-    """
-    
-    # ---- Setup Directory Structure ----
     images_dir = os.path.join(output_root, "images")
     depth_dir  = os.path.join(output_root, "depth")
     viz_dir    = os.path.join(output_root, "viz")
@@ -108,7 +87,6 @@ def run_da3_pipeline(image_paths, output_root):
         os.makedirs(d, exist_ok=True)
 
     
-    # ---- Organize Input Frames ----
     rel_frame_paths = []
     for i, src_path in enumerate(image_paths):
         filename = os.path.basename(src_path)
@@ -163,7 +141,6 @@ def run_da3_pipeline(image_paths, output_root):
                 # max_batch_size=len(batch_images), 
             )
         
-        # Immediately move to CPU to free GPU memory
         all_depths.append(prediction.depth)
         all_extrinsics.append(prediction.extrinsics)
         all_intrinsics.append(prediction.intrinsics)
@@ -172,7 +149,6 @@ def run_da3_pipeline(image_paths, output_root):
         if hasattr(prediction, 'conf'):
             all_confidences.append(prediction.conf)
         
-        # CRITICAL: Clear GPU memory after each batch
         del prediction
         del batch_images
         torch.cuda.empty_cache()
@@ -193,16 +169,15 @@ def run_da3_pipeline(image_paths, output_root):
     movement_range = np.linalg.norm(cam_positions.max(axis=0) - cam_positions.min(axis=0))
 
     if movement_range < 0.1:  # Less than 10cm total movement
-        print("\n⚠️  WARNING: Camera positions are nearly identical!")
+        print("\n  WARNING: Camera positions are nearly identical!")
         print("    This may indicate:")
         print("    - Video captured from a fixed tripod (needs translation)")
         print("    - DA3 failed to estimate motion (try more distinctive scene features)")
         print(f"    Movement detected: {movement_range*100:.1f} cm\n")
     else:
-        print(f"✓ Camera movement detected: {movement_range:.2f} meters")
+        print(f"Camera movement detected: {movement_range:.2f} meters")
 
     
-    # ---- Prepare Output JSON ----
     first_img = Image.open(image_paths[0])
     
     pose_data = {
@@ -213,7 +188,6 @@ def run_da3_pipeline(image_paths, output_root):
     }
 
     
-    # ---- Process Each Frame ----
     print(f"\nSaving outputs for {len(image_paths)} frames...")
     
     for i in range(len(image_paths)):
@@ -269,49 +243,34 @@ def run_da3_pipeline(image_paths, output_root):
     print(f"  → {len(image_paths)} depth maps saved to depth/")
     print(f"  → {len(image_paths)} visualizations in viz/")
     print(f"  → Camera poses saved to transforms.json")
-    print(f"\n⚠️  IMPORTANT: Check viz/*.png files!")
-    print(f"    - Walls should be smooth and flat")
-    print(f"    - Edges should be sharp at doorways/furniture")
-    print(f"    - Red = close, Blue = far")
-    print(f"\nNext Steps:")
-    print(f"  1. Validate depth quality in viz/ folder")
-    print(f"  2. Plot camera trajectory from transforms.json")
-    print(f"  3. Proceed to Step 2: Gaussian Splatting")
-    print(f"{'='*60}\n")
+    print(f"\n  IMPORTANT: Check viz/*.png files!")
 
 
 if __name__ == "__main__":
-    print(f"\n{'#'*60}")
     print(f"# STEP 1: VIDEO TO DEPTH + POSES")
-    print(f"# Memory-Optimized Mini-Batch Processing")
-    print(f"{'#'*60}\n")
+ 
     
-    # Create temporary extraction directory
     temp_img_dir = os.path.join(OUTPUT_DIR, "images_temp")
     
     try:
-        print("Phase 1: Extracting frames from video...")
+        print("Extracting frames from video")
         frame_paths = extract_frames(VIDEO_PATH, temp_img_dir, fps=FPS_EXTRACT)
         
-        print("\nPhase 2: Running DA3 inference...")
+        print("\n Running DA3 inference")
         run_da3_pipeline(frame_paths, OUTPUT_DIR)
         
         print("\nCleaning up temporary files...")
         import shutil
         shutil.rmtree(temp_img_dir)
-        print("✓ Temporary files removed")
+        print("Temporary files removed")
         
     except torch.cuda.OutOfMemoryError:
-        print(f"\n❌ CUDA OUT OF MEMORY ERROR")
-        print(f"\nSolutions:")
-        print(f"  1. Reduce MINI_BATCH_SIZE from {MINI_BATCH_SIZE} to 2 (or 1)")
-        print(f"  2. Use smaller model: 'depth-anything/DA3-BASE' or 'DA3-SMALL'")
-        print(f"  3. Reduce IMG_SIZE from {IMG_SIZE} to 392")
-        print(f"  4. Close other GPU applications")
+        print(f"\nCUDA OUT OF MEMORY ERROR")
+    
         import traceback
         traceback.print_exc()
         
     except Exception as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\n ERROR: {e}")
         import traceback
         traceback.print_exc()

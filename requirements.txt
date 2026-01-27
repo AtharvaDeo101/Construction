@@ -1,3 +1,4 @@
+addict==2.4.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
 antlr4-python3-runtime==4.9.3
@@ -23,6 +24,7 @@ e3nn==0.5.9
 einops==0.8.1
 evo==1.34.2
 executing==2.2.1
+ezdxf==1.4.3
 fastapi==0.128.0
 fastjsonschema==2.21.2
 filelock==3.20.3
@@ -31,6 +33,7 @@ fonttools==4.61.1
 fsspec==2026.1.0
 h11==0.16.0
 hf-xet==1.2.0
+hf_transfer==0.1.9
 httpcore==1.0.9
 httpx==0.28.1
 huggingface_hub==1.3.2
@@ -45,6 +48,7 @@ ipywidgets==8.1.8
 itsdangerous==2.2.0
 jedi==0.19.2
 Jinja2==3.1.6
+joblib==1.5.3
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 jupyter_core==5.9.1
@@ -99,6 +103,7 @@ rosbags==0.11.0
 rpds-py==0.30.0
 ruamel.yaml==0.19.1
 safetensors==0.7.0
+scikit-learn==1.8.0
 scipy==1.17.0
 seaborn==0.13.2
 setuptools==80.9.0
@@ -107,6 +112,7 @@ six==1.17.0
 stack-data==0.6.3
 starlette==0.50.0
 sympy==1.14.0
+threadpoolctl==3.6.0
 torch==2.9.1+cu130
 torchaudio==2.9.1+cu130
 torchvision==0.24.1+cu130
