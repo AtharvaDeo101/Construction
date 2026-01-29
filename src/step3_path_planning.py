@@ -15,15 +15,9 @@ import open3d as o3d
 
 
 class OccupancyGrid:
-    """Converts mesh/point cloud to 2D/3D occupancy grid for path planning"""
     
     def __init__(self, resolution=0.05, z_slice_height=1.0, z_tolerance=0.3):
-        """
-        Args:
-            resolution: Grid cell size in meters
-            z_slice_height: Height to slice floorplan (meters)
-            z_tolerance: +/- range around slice height to include points
-        """
+
         self.resolution = resolution
         self.z_slice_height = z_slice_height
         self.z_tolerance = z_tolerance
@@ -790,6 +784,6 @@ if __name__ == "__main__":
         save_path = sys.argv[1]
     else:
         # Default Windows desktop path as specified by user
-        save_path = r"C:\Users\kalea\OneDrive\Desktop\construct"
+        save_path = r"C:\Users\deoat\Desktop\Construct\output"
     
     demo_pipeline(save_directory=save_path)

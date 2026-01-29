@@ -12,9 +12,8 @@ from scipy.spatial.transform import Rotation
 
 
 
-# Defaults when run as script (overridable via run_step2)
-DEFAULT_SCAN_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
-DEFAULT_OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
+DEFAULT_SCAN_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
+DEFAULT_OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\output"
 
 # Point Cloud Parameters
 DEPTH_SCALE = 1.0           # DA3 outputs metric depth (meters)
@@ -320,9 +319,6 @@ def detect_planes(pcd, output_dir: str):
 
 
 def generate_mesh(pcd, output_dir: str):
-    """
-    Generate mesh from point cloud using Ball Pivoting or Poisson reconstruction.
-    """
     print("\n" + "="*60)
     print("GENERATING MESH")
     print("="*60)
@@ -356,9 +352,7 @@ def generate_mesh(pcd, output_dir: str):
 
 
 def generate_floor_plan(pcd, planes, output_dir: str):
-    """
-    Generate 2D floor plan by slicing point cloud at standard height.
-    """
+
     print("\n" + "="*60)
     print("PHASE C: BLUEPRINT GENERATION")
     print("="*60)
@@ -521,9 +515,7 @@ def generate_floor_plan(pcd, planes, output_dir: str):
 
 
 def plot_camera_trajectory(scan_dir: str, output_dir: str):
-    """
-    Visualize camera path for debugging.
-    """
+
     transforms_path = os.path.join(scan_dir, "transforms.json")
     transforms = load_transforms(transforms_path)
     
@@ -556,12 +548,9 @@ def plot_camera_trajectory(scan_dir: str, output_dir: str):
     plt.close()
 
 
-
+#run all the functions step by step. 
 def run_step2(scan_dir: str, output_dir: str, show_visualizations: bool = True, generate_mesh_flag: bool = True) -> None:
-    """
-    Run full Step 2 pipeline: fuse point clouds, detect planes, generate floor plan.
-    scan_dir must contain transforms.json, images/, depth/ from Step 1.
-    """
+
     global SHOW_VISUALIZATIONS
     SHOW_VISUALIZATIONS = bool(show_visualizations)
 
@@ -578,9 +567,7 @@ def run_step2(scan_dir: str, output_dir: str, show_visualizations: bool = True, 
 
 
 def main():
-    print("\n" + "#"*60)
-    print("# STEP 2: 3D RECONSTRUCTION & BLUEPRINT GENERATION")
-    print("#"*60)
+    print("3D RECONSTRUCTION & BLUEPRINT GENERATION")
     run_step2(DEFAULT_SCAN_DIR, DEFAULT_OUTPUT_DIR)
 
 
