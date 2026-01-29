@@ -26,13 +26,7 @@ class OccupancyGrid:
         self.grid_size = None
         
     def from_point_cloud(self, points, safety_margin=2):
-        """
-        Create occupancy grid from 3D point cloud
-        
-        Args:
-            points: Nx3 numpy array of xyz coordinates
-            safety_margin: Dilation kernel size for obstacle inflation (grid cells)
-        """
+
         # Filter points near desired height (for floorplan)
         z_min = self.z_slice_height - self.z_tolerance
         z_max = self.z_slice_height + self.z_tolerance
@@ -105,13 +99,7 @@ class AStarPlanner:
         return neighbors
     
     def plan(self, start_world, goal_world):
-        """
-        Find path from start to goal in world coordinates
-        
-        Returns:
-            path: List of world coordinates [(x,y), ...] or None if no path
-            stats: Dictionary with planning statistics
-        """
+
         start = self.grid.world_to_grid(start_world)
         goal = self.grid.world_to_grid(goal_world)
         
@@ -169,7 +157,6 @@ class AStarPlanner:
 
 
 class RRTPlanner:
-    """Rapidly-exploring Random Tree for path planning"""
     
     def __init__(self, occupancy_grid, max_iterations=5000, step_size=0.5, goal_sample_rate=0.1):
         self.grid = occupancy_grid
@@ -227,13 +214,7 @@ class RRTPlanner:
         return True
     
     def plan(self, start_world, goal_world):
-        """
-        RRT path planning
-        
-        Returns:
-            path: List of world coordinates or None
-            stats: Planning statistics
-        """
+
         tree = {tuple(start_world): None}  # node -> parent
         
         for iteration in range(self.max_iterations):
@@ -284,18 +265,6 @@ class PathVisualizer:
         
     def animate_planning(self, path, stats, start_world, goal_world, 
                         exploration_points=None, save_path=None, show=True):
-        """
-        Create animated visualization of path planning
-        
-        Args:
-            path: List of waypoints in world coordinates
-            stats: Dictionary of planning statistics
-            start_world: Start position (x, y)
-            goal_world: Goal position (x, y)
-            exploration_points: Optional list of explored nodes for visualization
-            save_path: Optional path to save animation (mp4 or gif)
-            show: If False, do not call plt.show() (for headless saving)
-        """
         fig = plt.figure(figsize=self.figsize)
         
         # Create 2D plot (top view)
@@ -416,15 +385,7 @@ class PathVisualizer:
         return fig, anim
     
     def plot_static(self, paths_dict, start_world, goal_world, save_path=None, show=True):
-        """
-        Plot multiple paths for comparison
-        
-        Args:
-            paths_dict: Dict of {algorithm_name: (path, stats)}
-            start_world, goal_world: Start and goal positions
-            save_path: If set, save figure to this path
-            show: If False, do not call plt.show() (for headless)
-        """
+
         fig, axes = plt.subplots(1, len(paths_dict), figsize=(6*len(paths_dict), 5))
         if len(paths_dict) == 1:
             axes = [axes]
@@ -555,19 +516,7 @@ def _convert_to_native(obj):
 
 
 def run_step3(step2_output_dir: str, save_dir: Optional[str] = None, show: bool = False) -> dict:
-    """
-    Run path planning pipeline using Step 2 outputs (point cloud, blueprint).
-    Loads point cloud, builds occupancy grid, plans A* path, generates visualizations.
-    Saves: occupancy_grid.png, path_animation.gif, blueprint_with_path.png, path_output.json.
-    
-    Args:
-        step2_output_dir: Directory containing pointcloud/, blueprint/, transforms.json.
-        save_dir: Where to write outputs. Defaults to step2_output_dir.
-        show: If True, call plt.show() for animations (use False for headless/API).
-    
-    Returns:
-        Dict with keys: success, path, stats, output_paths (paths to saved files).
-    """
+
     save_dir = save_dir or step2_output_dir
     Path(save_dir).mkdir(parents=True, exist_ok=True)
     out_paths = {}
