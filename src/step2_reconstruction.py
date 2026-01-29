@@ -12,9 +12,8 @@ from scipy.spatial.transform import Rotation
 
 
 
-SCAN_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
-OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\output\scan_001"
-
+SCAN_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
+OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
 # Point Cloud Parameters
 DEPTH_SCALE = 1.0           # DA3 outputs metric depth (meters)
 DEPTH_TRUNC = 8.0           # Ignore depths beyond 8 meters (indoor scenes)
