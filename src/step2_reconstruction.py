@@ -12,8 +12,10 @@ from scipy.spatial.transform import Rotation
 
 
 
-SCAN_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
-OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
+# Defaults when run as script (overridable via run_step2)
+DEFAULT_SCAN_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
+DEFAULT_OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
+
 # Point Cloud Parameters
 DEPTH_SCALE = 1.0           # DA3 outputs metric depth (meters)
 DEPTH_TRUNC = 8.0           # Ignore depths beyond 8 meters (indoor scenes)
@@ -31,8 +33,8 @@ FLOORPLAN_HEIGHT = 1.2      # Slice height in meters (standard: 1.0-1.5m)
 WALL_THICKNESS = 0.15       # Expected wall thickness (meters)
 SIMPLIFY_EPSILON = 0.05     # Douglas-Peucker line simplification (meters)
 
-# Visualization
-SHOW_VISUALIZATIONS = True  # Set False for headless execution
+# Visualization (set False for headless / API execution)
+SHOW_VISUALIZATIONS = True
 
 
 def load_transforms(json_path):
@@ -42,7 +44,7 @@ def load_transforms(json_path):
     return data
 
 
-def create_output_dirs():
+def create_output_dirs(output_dir: str):
     dirs = [
         "pointcloud",
         "mesh",
@@ -52,7 +54,7 @@ def create_output_dirs():
         "debug"
     ]
     for d in dirs:
-        os.makedirs(os.path.join(OUTPUT_DIR, d), exist_ok=True)
+        os.makedirs(os.path.join(output_dir, d), exist_ok=True)
 
 
 def depth_to_pointcloud(depth_map, color_img, intrinsic_matrix, confidence_map=None):
@@ -108,12 +110,10 @@ def transform_pointcloud(points, c2w_matrix):
 
 
 
-def fuse_pointclouds(scan_dir, output_dir):
-
+def fuse_pointclouds(scan_dir: str, output_dir: str):
     print("\n" + "="*60)
     print("PHASE A: POINT CLOUD FUSION")
     print("="*60)
-    
     transforms_path = os.path.join(scan_dir, "transforms.json")
     transforms = load_transforms(transforms_path)
     
@@ -217,7 +217,7 @@ def fuse_pointclouds(scan_dir, output_dir):
     return pcd_clean
 
 
-def detect_planes(pcd, output_dir):
+def detect_planes(pcd, output_dir: str):
     """
     Use RANSAC to detect dominant planes (floor, walls, ceiling).
     """
@@ -319,7 +319,7 @@ def detect_planes(pcd, output_dir):
 
 
 
-def generate_mesh(pcd, output_dir):
+def generate_mesh(pcd, output_dir: str):
     """
     Generate mesh from point cloud using Ball Pivoting or Poisson reconstruction.
     """
@@ -355,7 +355,7 @@ def generate_mesh(pcd, output_dir):
     return mesh
 
 
-def generate_floor_plan(pcd, planes, output_dir):
+def generate_floor_plan(pcd, planes, output_dir: str):
     """
     Generate 2D floor plan by slicing point cloud at standard height.
     """
@@ -442,6 +442,20 @@ def generate_floor_plan(pcd, planes, output_dir):
     plan_path = os.path.join(output_dir, "blueprint", "floorplan_2d.png")
     cv2.imwrite(plan_path, floor_plan_img)
     print(f"✓ Saved 2D floor plan: {plan_path}")
+
+    # Save metadata for path overlay (step3)
+    blueprint_meta = {
+        "resolution": resolution,
+        "x_min": float(x_min),
+        "x_max": float(x_max),
+        "y_min": float(y_min),
+        "y_max": float(y_max),
+        "img_width": img_width,
+        "img_height": img_height,
+    }
+    meta_path = os.path.join(output_dir, "blueprint", "blueprint_meta.json")
+    with open(meta_path, "w") as f:
+        json.dump(blueprint_meta, f, indent=2)
     
     # Generate wireframe version (edges only)
     print("Generating wireframe blueprint...")
@@ -507,7 +521,7 @@ def generate_floor_plan(pcd, planes, output_dir):
     print(f"{'='*60}\n")
 
 
-def plot_camera_trajectory(scan_dir, output_dir):
+def plot_camera_trajectory(scan_dir: str, output_dir: str):
     """
     Visualize camera path for debugging.
     """
@@ -544,43 +558,31 @@ def plot_camera_trajectory(scan_dir, output_dir):
 
 
 
+def run_step2(scan_dir: str, output_dir: str, show_visualizations: bool = True, generate_mesh_flag: bool = True) -> None:
+    """
+    Run full Step 2 pipeline: fuse point clouds, detect planes, generate floor plan.
+    scan_dir must contain transforms.json, images/, depth/ from Step 1.
+    """
+    global SHOW_VISUALIZATIONS
+    SHOW_VISUALIZATIONS = bool(show_visualizations)
+
+    create_output_dirs(output_dir)
+    print("\nGenerating debug visualizations...")
+    plot_camera_trajectory(scan_dir, output_dir)
+    pcd = fuse_pointclouds(scan_dir, output_dir)
+    planes, _ = detect_planes(pcd, output_dir)
+    if generate_mesh_flag:
+        generate_mesh(pcd, output_dir)
+    generate_floor_plan(pcd, planes, output_dir)
+    print("\n✓ STEP 2 COMPLETE!")
+    print(f"Outputs saved to: {output_dir}")
+
+
 def main():
     print("\n" + "#"*60)
     print("# STEP 2: 3D RECONSTRUCTION & BLUEPRINT GENERATION")
     print("#"*60)
-    
-    # Setup
-    create_output_dirs()
-    
-    # Debug: Plot camera trajectory
-    print("\nGenerating debug visualizations...")
-    plot_camera_trajectory(SCAN_DIR, OUTPUT_DIR)
-    
-    # Phase A: Fuse point clouds
-    pcd = fuse_pointclouds(SCAN_DIR, OUTPUT_DIR)
-    
-    # Phase B: Detect planes
-    planes, plane_clouds = detect_planes(pcd, OUTPUT_DIR)
-    
-    # Optional: Generate mesh (computationally expensive)
-    generate_mesh_flag = True
-    if generate_mesh_flag:
-        mesh = generate_mesh(pcd, OUTPUT_DIR)
-    
-    # Phase C: Generate floor plan
-    generate_floor_plan(pcd, planes, OUTPUT_DIR)
-    
-    print("\n" + "="*60)
-    print("✓ STEP 2 COMPLETE!")
-    print("="*60)
-    print(f"\nOutputs saved to: {OUTPUT_DIR}")
-    print("\nGenerated files:")
-    print("  • Point clouds: output/scan_001/pointcloud/")
-    print("  • Detected planes: output/scan_001/planes/")
-    print("  • 2D blueprints: output/scan_001/blueprint/")
-    print("  • Mesh: output/scan_001/mesh/")
-    print("\nNext: Proceed to Step 3 for path planning")
-    print("="*60 + "\n")
+    run_step2(DEFAULT_SCAN_DIR, DEFAULT_OUTPUT_DIR)
 
 
 if __name__ == "__main__":

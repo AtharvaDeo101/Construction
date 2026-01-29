@@ -91,6 +91,7 @@ pycolmap==3.13.0
 pydantic==2.12.5
 pydantic_core==2.41.5
 Pygments==2.19.2
+python-multipart==0.0.17
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
 pytz==2025.2
@@ -103,11 +104,8 @@ rosbags==0.11.0
 rpds-py==0.30.0
 ruamel.yaml==0.19.1
 safetensors==0.7.0
-<<<<<<< HEAD
-scikit-learn==1.8.0
-=======
 scikit-image==0.25.2
->>>>>>> c8e0ea90632f7b6301f344eb14dcabb49e6267bb
+scikit-learn==1.8.0
 scipy==1.17.0
 seaborn==0.13.2
 setuptools==80.9.0
@@ -117,9 +115,9 @@ stack-data==0.6.3
 starlette==0.50.0
 sympy==1.14.0
 threadpoolctl==3.6.0
-torch==2.9.1+cu130
-torchaudio==2.9.1+cu130
-torchvision==0.24.1+cu130
+torch==2.9.1
+torchaudio==2.9.1
+torchvision==0.24.1
 tqdm==4.67.1
 traitlets==5.14.3
 trimesh==4.11.1

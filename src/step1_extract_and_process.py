@@ -9,11 +9,11 @@ from PIL import Image
 from depth_anything_3.api import DepthAnything3
 
 
-MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"  
+MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"
 
-
-VIDEO_PATH = r"C:\Users\kalea\Downloads\4095679-uhd_3840_2160_30fps.mp4"
-OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
+# Defaults when run as script (overridable via run_pipeline)
+DEFAULT_VIDEO_PATH = r"C:\Users\kalea\Downloads\4095679-uhd_3840_2160_30fps.mp4"
+DEFAULT_OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
 FPS_EXTRACT = 2          
 IMG_SIZE = 518          
 MINI_BATCH_SIZE = 3      
@@ -246,31 +246,33 @@ def run_da3_pipeline(image_paths, output_root):
     print(f"\n  IMPORTANT: Check viz/*.png files!")
 
 
-if __name__ == "__main__":
-    print(f"# STEP 1: VIDEO TO DEPTH + POSES")
- 
-    
-    temp_img_dir = os.path.join(OUTPUT_DIR, "images_temp")
-    
+def run_step1(video_path: str, output_dir: str, fps_extract: int = FPS_EXTRACT) -> None:
+    """
+    Run full Step 1 pipeline: extract frames from video, run DA3 depth+pose, write to output_dir.
+    Use this from API or CLI. output_dir will contain transforms.json, images/, depth/, viz/.
+    """
+    temp_img_dir = os.path.join(output_dir, "images_temp")
     try:
         print("Extracting frames from video")
-        frame_paths = extract_frames(VIDEO_PATH, temp_img_dir, fps=FPS_EXTRACT)
-        
-        print("\n Running DA3 inference")
-        run_da3_pipeline(frame_paths, OUTPUT_DIR)
-        
-        print("\nCleaning up temporary files...")
-        import shutil
-        shutil.rmtree(temp_img_dir)
-        print("Temporary files removed")
-        
+        frame_paths = extract_frames(video_path, temp_img_dir, fps=fps_extract)
+        print("\nRunning DA3 inference")
+        run_da3_pipeline(frame_paths, output_dir)
+    finally:
+        if os.path.exists(temp_img_dir):
+            import shutil
+            shutil.rmtree(temp_img_dir)
+            print("Temporary files removed")
+
+
+if __name__ == "__main__":
+    print("# STEP 1: VIDEO TO DEPTH + POSES")
+    try:
+        run_step1(DEFAULT_VIDEO_PATH, DEFAULT_OUTPUT_DIR)
     except torch.cuda.OutOfMemoryError:
-        print(f"\nCUDA OUT OF MEMORY ERROR")
-    
+        print("\nCUDA OUT OF MEMORY ERROR")
         import traceback
         traceback.print_exc()
-        
     except Exception as e:
-        print(f"\n ERROR: {e}")
+        print(f"\nERROR: {e}")
         import traceback
         traceback.print_exc()

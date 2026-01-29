@@ -1,15 +1,17 @@
+import json
+import os
+from pathlib import Path
+from typing import Optional
+
+import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
-import networkx as nx
-from scipy.spatial import KDTree
 from scipy.ndimage import binary_dilation
 import heapq
-from collections import defaultdict
-import json
-from pathlib import Path
-import cv2
+
+import open3d as o3d
 
 
 class OccupancyGrid:
@@ -287,7 +289,7 @@ class PathVisualizer:
         self.figsize = figsize
         
     def animate_planning(self, path, stats, start_world, goal_world, 
-                        exploration_points=None, save_path=None):
+                        exploration_points=None, save_path=None, show=True):
         """
         Create animated visualization of path planning
         
@@ -298,6 +300,7 @@ class PathVisualizer:
             goal_world: Goal position (x, y)
             exploration_points: Optional list of explored nodes for visualization
             save_path: Optional path to save animation (mp4 or gif)
+            show: If False, do not call plt.show() (for headless saving)
         """
         fig = plt.figure(figsize=self.figsize)
         
@@ -412,17 +415,21 @@ class PathVisualizer:
             print(f"Saving animation to {save_path}...")
             anim.save(save_path, writer='pillow', fps=20)
             print("Animation saved!")
-        
-        plt.show()
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
         return fig, anim
     
-    def plot_static(self, paths_dict, start_world, goal_world):
+    def plot_static(self, paths_dict, start_world, goal_world, save_path=None, show=True):
         """
         Plot multiple paths for comparison
         
         Args:
             paths_dict: Dict of {algorithm_name: (path, stats)}
             start_world, goal_world: Start and goal positions
+            save_path: If set, save figure to this path
+            show: If False, do not call plt.show() (for headless)
         """
         fig, axes = plt.subplots(1, len(paths_dict), figsize=(6*len(paths_dict), 5))
         if len(paths_dict) == 1:
@@ -469,22 +476,171 @@ class PathVisualizer:
             ax.legend(loc='upper right', fontsize=9)
         
         plt.tight_layout()
-        plt.show()
+        if save_path:
+            fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
         return fig
 
 
+def _load_point_cloud_from_step2(step2_dir: str) -> np.ndarray:
+    """Load colored point cloud from Step 2 output and return Nx3 points (world coords)."""
+    ply_path = os.path.join(step2_dir, "pointcloud", "colored_cloud.ply")
+    if not os.path.isfile(ply_path):
+        ply_path = os.path.join(step2_dir, "pointcloud", "filtered_cloud.ply")
+    if not os.path.isfile(ply_path):
+        raise FileNotFoundError(f"No point cloud found in {step2_dir}/pointcloud/")
+    pcd = o3d.io.read_point_cloud(ply_path)
+    return np.asarray(pcd.points)
+
+
+def _get_start_goal_from_transforms(step2_dir: str, z_height: float = 1.0):
+    """Get start (first) and goal (last) camera XY from transforms.json, at z=z_height."""
+    path = os.path.join(step2_dir, "transforms.json")
+    with open(path, "r") as f:
+        data = json.load(f)
+    frames = data["frames"]
+    if len(frames) < 2:
+        raise ValueError("Need at least 2 frames for start/goal")
+    c2w_first = np.array(frames[0]["transform_matrix"])
+    c2w_last = np.array(frames[-1]["transform_matrix"])
+    start_xy = c2w_first[:3, 3][:2].copy()
+    goal_xy = c2w_last[:3, 3][:2].copy()
+    return np.array(start_xy), np.array(goal_xy)
+
+
+def _overlay_path_on_blueprint(step2_dir: str, path, start_world, goal_world, save_path: str) -> bool:
+    """Overlay path on Step 2 floorplan image using blueprint_meta.json; save to save_path. Returns True if saved."""
+    meta_path = os.path.join(step2_dir, "blueprint", "blueprint_meta.json")
+    img_path = os.path.join(step2_dir, "blueprint", "floorplan_2d.png")
+    if not os.path.isfile(meta_path) or not os.path.isfile(img_path):
+        return False
+    with open(meta_path, "r") as f:
+        meta = json.load(f)
+    res = meta["resolution"]
+    x_min, x_max = meta["x_min"], meta["x_max"]
+    y_min, y_max = meta["y_min"], meta["y_max"]
+    img = cv2.imread(img_path)
+    if img is None:
+        return False
+
+    def world_to_px(x, y):
+        px = int((x - x_min) * res)
+        py = int((y_max - y) * res)
+        return (px, py)
+
+    pts = [world_to_px(p[0], p[1]) for p in path] if path else []
+    for i in range(len(pts) - 1):
+        cv2.line(img, pts[i], pts[i + 1], (0, 128, 255), 3)
+    if pts:
+        for p in pts:
+            cv2.circle(img, p, 4, (0, 128, 255), -1)
+    sx, sy = world_to_px(start_world[0], start_world[1])
+    gx, gy = world_to_px(goal_world[0], goal_world[1])
+    cv2.circle(img, (sx, sy), 12, (0, 255, 0), 2)
+    cv2.circle(img, (gx, gy), 12, (0, 0, 255), 2)
+    cv2.imwrite(save_path, img)
+    return True
+
+
+def _convert_to_native(obj):
+    """Convert numpy types to native Python for JSON serialization."""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {k: _convert_to_native(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_convert_to_native(i) for i in obj]
+    return obj
+
+
+def run_step3(step2_output_dir: str, save_dir: Optional[str] = None, show: bool = False) -> dict:
+    """
+    Run path planning pipeline using Step 2 outputs (point cloud, blueprint).
+    Loads point cloud, builds occupancy grid, plans A* path, generates visualizations.
+    Saves: occupancy_grid.png, path_animation.gif, blueprint_with_path.png, path_output.json.
+    
+    Args:
+        step2_output_dir: Directory containing pointcloud/, blueprint/, transforms.json.
+        save_dir: Where to write outputs. Defaults to step2_output_dir.
+        show: If True, call plt.show() for animations (use False for headless/API).
+    
+    Returns:
+        Dict with keys: success, path, stats, output_paths (paths to saved files).
+    """
+    save_dir = save_dir or step2_output_dir
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+    out_paths = {}
+
+    points = _load_point_cloud_from_step2(step2_output_dir)
+    start_world, goal_world = _get_start_goal_from_transforms(step2_output_dir, z_height=1.0)
+
+    grid = OccupancyGrid(resolution=0.1, z_slice_height=1.0, z_tolerance=0.3)
+    occ = grid.from_point_cloud(points, safety_margin=2)
+
+    astar = AStarPlanner(grid)
+    path, stats = astar.plan(start_world, goal_world)
+    if not path:
+        stats["success"] = False
+        return {"success": False, "path": None, "stats": stats, "output_paths": {}}
+
+    stats["success"] = True
+    vis = PathVisualizer(grid)
+
+    # Static occupancy grid + path
+    grid_png = os.path.join(save_dir, "occupancy_grid.png")
+    vis.plot_static({"A*": (path, stats)}, start_world, goal_world, save_path=grid_png, show=show)
+    out_paths["occupancy_grid"] = grid_png
+
+    # Path animation GIF
+    gif_path = os.path.join(save_dir, "path_animation.gif")
+    vis.animate_planning(path, stats, start_world, goal_world, save_path=gif_path, show=show)
+    out_paths["path_animation"] = gif_path
+
+    # Blueprint overlay
+    bp_path = os.path.join(save_dir, "blueprint_with_path.png")
+    if _overlay_path_on_blueprint(step2_output_dir, path, start_world, goal_world, bp_path):
+        out_paths["blueprint_with_path"] = bp_path
+
+    # Path JSON
+    path_len_m = sum(
+        np.linalg.norm(np.array(path[i + 1]) - np.array(path[i])) for i in range(len(path) - 1)
+    )
+    payload = {
+        "algorithm": "A*",
+        "start": _convert_to_native(start_world),
+        "goal": _convert_to_native(goal_world),
+        "path": [_convert_to_native(p) for p in path],
+        "statistics": _convert_to_native({**stats, "path_length_meters": path_len_m}),
+        "grid_info": {
+            "resolution": float(grid.resolution),
+            "origin": _convert_to_native(grid.origin),
+            "size": [int(grid.grid_size[0]), int(grid.grid_size[1])],
+        },
+    }
+    json_path = os.path.join(save_dir, "path_output.json")
+    with open(json_path, "w") as f:
+        json.dump(payload, f, indent=2)
+    out_paths["path_json"] = json_path
+
+    return {"success": True, "path": path, "stats": stats, "output_paths": out_paths}
+
+
 def demo_pipeline(save_directory=None):
-    """Demo the complete path planning pipeline
+    """Demo the complete path planning pipeline (synthetic data).
     
     Args:
         save_directory: Directory to save outputs (default: current directory)
     """
-    
-    # Set up save directory
     if save_directory is None:
-        save_directory = '/home/claude'
+        save_directory = os.path.expanduser("~")
     else:
-        # Create directory if it doesn't exist (for Windows paths)
         Path(save_directory).mkdir(parents=True, exist_ok=True)
     
     print("=" * 60)
