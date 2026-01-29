@@ -1,4 +1,5 @@
-"""FastAPI backend for indoor navigation pipeline: upload video, run pipeline, serve outputs."""
+"""FastAPI backend for indoor navigation pipeline: upload video, run pipeline, serve outputs.
+API-only backend for use with Flutter or other clients."""
 from __future__ import annotations
 
 import os
@@ -9,17 +10,15 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from .video_utils import validate_duration
 
 ROOT = Path(__file__).resolve().parent.parent
 SESSIONS_DIR = ROOT / "sessions"
-FRONTEND_DIR = ROOT / "frontend"
 ALLOWED_EXTENSIONS = {".mp4", ".webm"}
-MIN_DURATION = 10.0
-MAX_DURATION = 30.0
+MIN_DURATION = 5.0
+MAX_DURATION = 20.0
 
 
 def _ensure_dirs():
@@ -130,44 +129,32 @@ def create_app():
             outputs = data.get("outputs") or {}
         return JSONResponse({"outputs": outputs})
 
-    @app.get("/api/sessions/{session_id}/outputs/{filename}")
+    @app.get("/api/sessions/{session_id}/outputs/{filename:path}")
     async def get_output(session_id: str, filename: str):
         path = _session_dir(session_id)
         if not path.is_dir():
             raise HTTPException(404, "Session not found")
-        fpath = path / filename
+        fn = filename.replace("\\", "/").strip("/")
+        if ".." in fn or fn.startswith("/"):
+            raise HTTPException(404, "Invalid path")
+        fpath = path / fn
         if not fpath.is_file():
             raise HTTPException(404, "Output file not found")
-        return FileResponse(fpath, filename=filename)
+        return FileResponse(fpath, filename=Path(fn).name)
 
-    if FRONTEND_DIR.is_dir() and (FRONTEND_DIR / "index.html").is_file():
-        assets = FRONTEND_DIR / "assets"
-        if assets.is_dir():
-            app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
-
-        @app.get("/")
-        async def index():
-            return FileResponse(FRONTEND_DIR / "index.html")
-    else:
-        # Fallback: serve single index from frontend folder or repo root
-        idx = FRONTEND_DIR / "index.html"
-        if not idx.is_file():
-            idx = ROOT / "frontend" / "index.html"
-        if idx.is_file():
-            @app.get("/")
-            async def index():
-                return FileResponse(idx)
-        else:
-            @app.get("/")
-            async def index():
-                return JSONResponse({
-                    "message": "Indoor Navigation API",
-                    "docs": "/docs",
-                    "upload": "POST /api/upload-video",
-                    "status": "GET /api/sessions/{session_id}/status",
-                    "outputs": "GET /api/sessions/{session_id}/outputs",
-                    "file": "GET /api/sessions/{session_id}/outputs/{filename}",
-                })
+    @app.get("/")
+    async def root():
+        return JSONResponse({
+            "message": "Indoor Navigation API",
+            "docs": "/docs",
+            "health": "/health",
+            "endpoints": {
+                "upload": "POST /api/upload-video",
+                "status": "GET /api/sessions/{session_id}/status",
+                "outputs": "GET /api/sessions/{session_id}/outputs",
+                "file": "GET /api/sessions/{session_id}/outputs/{filename}",
+            },
+        })
 
     return app
 

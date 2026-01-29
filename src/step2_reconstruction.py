@@ -498,23 +498,22 @@ def generate_floor_plan(pcd, planes, output_dir: str):
         print("⚠️  ezdxf not installed, skipping DXF export")
         print("    Install with: pip install ezdxf")
     
-    # Display
+    # Always save blueprint comparison (for API/frontend); optionally display
+    fig = plt.figure(figsize=(12, 6))
+    plt.subplot(1, 2, 1)
+    plt.imshow(cv2.cvtColor(floor_plan_img, cv2.COLOR_BGR2RGB))
+    plt.title("Floor Plan (Filled)")
+    plt.axis('off')
+    plt.subplot(1, 2, 2)
+    plt.imshow(cv2.cvtColor(wireframe_img, cv2.COLOR_BGR2RGB))
+    plt.title("Wireframe Blueprint")
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "debug", "blueprint_comparison.png"), dpi=150)
     if SHOW_VISUALIZATIONS:
-        plt.figure(figsize=(12, 6))
-        
-        plt.subplot(1, 2, 1)
-        plt.imshow(cv2.cvtColor(floor_plan_img, cv2.COLOR_BGR2RGB))
-        plt.title("Floor Plan (Filled)")
-        plt.axis('off')
-        
-        plt.subplot(1, 2, 2)
-        plt.imshow(cv2.cvtColor(wireframe_img, cv2.COLOR_BGR2RGB))
-        plt.title("Wireframe Blueprint")
-        plt.axis('off')
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "debug", "blueprint_comparison.png"), dpi=150)
         plt.show()
+    else:
+        plt.close(fig)
     
     print(f"\n{'='*60}")
     print("BLUEPRINT GENERATION COMPLETE")

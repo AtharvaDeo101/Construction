@@ -1,4 +1,4 @@
-"""Run the Indoor Navigation web app (FastAPI + frontend). Execute from project root."""
+"""Run the Indoor Navigation API server. Execute from project root."""
 import sys
 
 import uvicorn
@@ -6,9 +6,10 @@ import uvicorn
 if __name__ == "__main__":
     host = "127.0.0.1"
     port = 8000
-    print("Starting Indoor Navigation server...")
-    print(f"  Open: http://{host}:{port}")
-    print("  Health: http://{}:{}/health".format(host, port))
+    print("Starting Indoor Navigation API...")
+    print(f"  API:  http://{host}:{port}")
+    print(f"  Docs: http://{host}:{port}/docs")
+    print(f"  Health: http://{host}:{port}/health")
     print("  (Ctrl+C to stop)")
     sys.stdout.flush()
     uvicorn.run(

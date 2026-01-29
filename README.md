@@ -19,6 +19,10 @@ This system extends your existing indoor reconstruction pipeline with intelligen
 ✅ **Memory Efficient** - Optimized for RTX 3050-class GPUs  
 ✅ **Modular Design** - Easy to extend with semantic understanding or multi-floor support  
 
+### REST API (Flutter / Mobile)
+
+The project includes an **API-only backend** for use with Flutter or other clients. Run `python run_server.py` and use the REST endpoints to upload video, poll status, and download outputs (PNG, GIF, JSON, PLY). See **[API.md](API.md)** for full documentation.
+
 ---
 
 ## System Architecture
