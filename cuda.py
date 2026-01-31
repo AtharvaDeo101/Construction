@@ -10,6 +10,3 @@
 import open3d as o3d
 print(o3d.core.cuda.is_available())   
 
-geo = r"C:\Users\deoat\Desktop\Construct\output\pointcloud\raw_cloud.ply"
-
-o3d.visualization.draw_geometries([geo])

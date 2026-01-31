@@ -13,7 +13,7 @@ MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"
 
 # Defaults when run as script (overridable via run_pipeline)
 DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\room.mp4"
-DEFAULT_OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
+DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\data\\scan_001"
 FPS_EXTRACT = 2
 IMG_SIZE = 518
 MINI_BATCH_SIZE = 3
@@ -118,7 +118,7 @@ def run_da3_pipeline(image_paths, output_root):
     model = DepthAnything3.from_pretrained(
         MODEL_REPO,
         local_files_only=False
-    ).to(DEVICE).eval()  # [page:0]
+    ).to(DEVICE).eval()
 
     all_depths = []
     all_extrinsics = []
@@ -143,8 +143,7 @@ def run_da3_pipeline(image_paths, output_root):
         with torch.no_grad():
             prediction = model.inference(
                 batch_images,
-                # You can uncomment and tune input_size if needed:
-                # input_size=IMG_SIZE,
+                # input_size=IMG_SIZE,  # can be tuned if needed
             )
 
         all_depths.append(prediction.depth)          # [N, H, W] float32
@@ -219,7 +218,7 @@ def run_da3_pipeline(image_paths, output_root):
 
         cv2.imwrite(os.path.join(viz_dir, f"{idx_str}_depth.png"), colored)
 
-        # DA3 extrinsics: OpenCV/Colmap w2c: [R | t], x_cam = R x_world + t  [page:0]
+        # DA3 extrinsics: OpenCV/Colmap w2c: [R | t], x_cam = R x_world + t
         w2c_3x4 = extrinsics[i]
         w2c_4x4 = np.eye(4, dtype=np.float32)
         w2c_4x4[:3, :] = w2c_3x4

@@ -8,13 +8,20 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 # Defaults
-DEFAULT_SCAN_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
-DEFAULT_OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\output"
+DEFAULT_SCAN_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\data\\scan_001"
+DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\output"
 
 # Point Cloud Parameters
 DEPTH_TRUNC = 8.0       # Ignore depths beyond this
 VOXEL_SIZE = 0.02       # Downsample resolution (2cm)
 CONFIDENCE_THRESH = 0.5 # 0.0 to disable confidence filter
+
+# Drift / Fusion Controls
+USE_KEYFRAMES = True          # Reduce redundant overlapping frames
+MIN_KEYFRAME_TRANSL = 0.08    # m
+MIN_KEYFRAME_ROT_DEG = 4.0    # degrees
+USE_PAIRWISE_ICP = True       # Refine consecutive frame alignment
+ICP_MAX_DIST = 0.05           # Correspondence distance for ICP (meters)
 
 # Plane Detection Parameters
 RANSAC_DISTANCE_THRESH = 0.05
@@ -87,6 +94,85 @@ def transform_pointcloud(points, c2w_matrix):
     return points_world[:, :3]
 
 
+def select_keyframes(frames,
+                     min_translation=MIN_KEYFRAME_TRANSL,
+                     min_rotation_deg=MIN_KEYFRAME_ROT_DEG):
+    """
+    Simple keyframe selection to reduce redundant frames and drift accumulation.
+    """
+    if len(frames) <= 1:
+        return frames
+
+    keyframes = [frames[0]]
+    prev_pose = np.array(frames[0]['transform_matrix'])
+
+    for frame in frames[1:]:
+        curr_pose = np.array(frame['transform_matrix'])
+
+        t_prev = prev_pose[:3, 3]
+        t_curr = curr_pose[:3, 3]
+        translation = np.linalg.norm(t_curr - t_prev)
+
+        R_prev = prev_pose[:3, :3]
+        R_curr = curr_pose[:3, :3]
+        R_rel = R_curr @ R_prev.T
+        trace = np.clip((np.trace(R_rel) - 1) / 2.0, -1.0, 1.0)
+        rotation_rad = np.arccos(trace)
+        rotation_deg = np.degrees(rotation_rad)
+
+        if translation > min_translation or rotation_deg > min_rotation_deg:
+            keyframes.append(frame)
+            prev_pose = curr_pose
+
+    print(f"Keyframe selection: {len(frames)} → {len(keyframes)} frames")
+    return keyframes
+
+
+def remove_duplicate_geometry(pcd, base_voxel=VOXEL_SIZE):
+    """
+    Extra filtering to reduce overlapping/ghost geometry due to drift.
+    """
+    print("\nAdditional duplicate/ghost filtering...")
+    # Slightly larger voxel for merging near-duplicate points
+    pcd_ds = pcd.voxel_down_sample(voxel_size=base_voxel * 1.5)
+
+    # Radius outlier removal to drop sparse noisy clusters
+    pcd_clean, _ = pcd_ds.remove_radius_outlier(
+        nb_points=12,
+        radius=base_voxel * 3.0
+    )
+    print(f"Points after ghost filtering: {len(pcd_clean.points):,}")
+    return pcd_clean
+
+
+def refine_with_icp(prev_pcd, new_pcd, max_dist=ICP_MAX_DIST):
+    """
+    Refine alignment of new_pcd to prev_pcd using point-to-plane ICP.
+    """
+    if len(prev_pcd.points) == 0 or len(new_pcd.points) == 0:
+        return np.eye(4)
+
+    # Estimate normals if not present
+    if not prev_pcd.has_normals():
+        prev_pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+        )
+    if not new_pcd.has_normals():
+        new_pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+        )
+
+    trans_init = np.eye(4)
+    reg = o3d.pipelines.registration.registration_icp(
+        new_pcd,
+        prev_pcd,
+        max_dist,
+        trans_init,
+        o3d.pipelines.registration.TransformationEstimationPointToPlane()
+    )
+    return reg.transformation
+
+
 def fuse_pointclouds(scan_dir: str, output_dir: str):
     print("\n" + "="*60)
     print("PHASE A: POINT CLOUD FUSION")
@@ -98,7 +184,13 @@ def fuse_pointclouds(scan_dir: str, output_dir: str):
     frames = transforms['frames']
     print(f"Loading {len(frames)} frames...")
 
+    if USE_KEYFRAMES:
+        frames = select_keyframes(frames)
+
     all_points, all_colors = [], []
+
+    # Keep a running Open3D cloud for optional ICP-based refinement
+    integrated_pcd = o3d.geometry.PointCloud()
 
     for idx, frame in enumerate(frames):
         depth_path = os.path.join(scan_dir, frame['depth_path'])
@@ -123,8 +215,22 @@ def fuse_pointclouds(scan_dir: str, output_dir: str):
         points_cam, colors = depth_to_pointcloud(depth_map, color_img, intrinsic, confidence_map)
         points_world = transform_pointcloud(points_cam, c2w)
 
-        all_points.append(points_world)
-        all_colors.append(colors)
+        # Build a small pcd for this frame and optionally refine with ICP
+        frame_pcd = o3d.geometry.PointCloud()
+        frame_pcd.points = o3d.utility.Vector3dVector(points_world)
+        frame_pcd.colors = o3d.utility.Vector3dVector(colors)
+
+        if USE_PAIRWISE_ICP and len(integrated_pcd.points) > 0:
+            # Downsample both clouds for faster ICP
+            tmp_prev = integrated_pcd.voxel_down_sample(voxel_size=VOXEL_SIZE * 2.0)
+            tmp_new = frame_pcd.voxel_down_sample(voxel_size=VOXEL_SIZE * 2.0)
+            T_icp = refine_with_icp(tmp_prev, tmp_new)
+            frame_pcd.transform(T_icp)
+
+        integrated_pcd += frame_pcd
+
+        all_points.append(np.asarray(frame_pcd.points))
+        all_colors.append(np.asarray(frame_pcd.colors))
 
         if (idx + 1) % 5 == 0:
             print(f"  Processed {idx+1}/{len(frames)} frames")
@@ -149,6 +255,9 @@ def fuse_pointclouds(scan_dir: str, output_dir: str):
     print("Removing statistical outliers...")
     pcd_clean, _ = pcd_down.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.5)
     print(f"Points after filtering: {len(pcd_clean.points):,}")
+
+    # Extra duplicate/ghost reduction
+    pcd_clean = remove_duplicate_geometry(pcd_clean)
 
     filtered_path = os.path.join(output_dir, "pointcloud", "filtered_cloud.ply")
     o3d.io.write_point_cloud(filtered_path, pcd_clean)
