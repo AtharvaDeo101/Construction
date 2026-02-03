@@ -1,6 +1,5 @@
 
 import os
-import json
 import numpy as np
 import open3d as o3d
 import cv2
@@ -14,7 +13,7 @@ RAW_POINTCLOUD_PATH = os.path.join(DEFAULT_OUTPUT_DIR, "pointcloud", "raw_cloud.
 # Point cloud filtering
 DEPTH_TRUNC = 8.0          # Keep points within this distance (meters)
 VOXEL_SIZE = 0.015         # Smaller = denser cloud, larger = smoother
-CONFIDENCE_THRESH = 0.6    # You can raise to 0.7–0.8 to reduce duplicates, or lower to 0.4–0.5 if you see missing chunks
+CONFIDENCE_THRESH = 0.8    # You can raise to 0.7–0.8 to reduce duplicates, or lower to 0.4–0.5 if you see missing chunks
 
 # Duplicate structure removal (DBSCAN)
 DUPLICATE_EPS = 0.04       # Meters in XY space for clustering overlapping walls
@@ -79,6 +78,35 @@ def downsample_and_filter_pointcloud(pcd: o3d.geometry.PointCloud) -> o3d.geomet
         o3d.visualization.draw_geometries([pcd_rad], window_name="Filtered point cloud")
 
     return pcd_rad
+
+
+# At the top, set visualization mode
+VISUALIZATION_MODE = "web"  # Options: "web", "native", "export"
+
+def visualize_model(geometry, window_name="3D Model"):
+    """Smart visualization dispatcher"""
+    
+    if VISUALIZATION_MODE == "web":
+        # Best for smoothness
+        o3d.visualization.draw(geometry, title=window_name)
+        
+    elif VISUALIZATION_MODE == "native":
+        # Traditional window
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(window_name=window_name, width=1920, height=1080)
+        vis.add_geometry(geometry)
+        opt = vis.get_render_option()
+        opt.mesh_show_back_face = False
+        vis.run()
+        vis.destroy_window()
+        
+    elif VISUALIZATION_MODE == "export":
+        # Export for external viewer
+        export_path = os.path.join(output_dir, "mesh", "mesh_for_viewer.ply")
+        o3d.io.write_triangle_mesh(export_path, geometry)
+        print(f"\n✓ Exported mesh: {export_path}")
+        print("Open with MeshLab or Blender for best viewing experience")
+
 
 
 
@@ -158,8 +186,7 @@ def remove_duplicate_structures(pcd: o3d.geometry.PointCloud) -> o3d.geometry.Po
         new_pcd.colors = o3d.utility.Vector3dVector(new_colors)
 
     if SHOW_VISUALIZATIONS:
-        print("Visualizing de-duplicated point cloud...")
-        o3d.visualization.draw_geometries([new_pcd], window_name="De-duplicated point cloud")
+        visualize_model(mesh, "Reconstructed Mesh")
 
     return new_pcd
 
