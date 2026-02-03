@@ -1,4 +1,3 @@
-# src/step1_extract_and_process.py
 
 import os
 import torch
@@ -12,7 +11,7 @@ from depth_anything_3.api import DepthAnything3
 MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"
 
 # Defaults when run as script (overridable via run_pipeline)
-DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\room.mp4"
+DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\1.mp4"
 DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\data\\scan_001"
 FPS_EXTRACT = 2
 IMG_SIZE = 518
@@ -77,13 +76,6 @@ def extract_frames(video_path: str, out_dir: str, fps: int = 2):
 
 
 def run_da3_pipeline(image_paths, output_root):
-    """
-    Run Depth Anything 3 on a list of image paths and save:
-      - images/ : RGB frames
-      - depth/  : depth (and optional confidence) npy files
-      - viz/    : colored depth visualizations
-      - transforms.json : intrinsics + poses per frame
-    """
 
     images_dir = os.path.join(output_root, "images")
     depth_dir = os.path.join(output_root, "depth")
@@ -261,7 +253,8 @@ def run_step1(video_path: str, output_dir: str, fps_extract: int = FPS_EXTRACT) 
         if os.path.exists(temp_img_dir):
             import shutil
             shutil.rmtree(temp_img_dir)
-            print("Temporary files removed")
+            print("Temporary files removal")
+            
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\output"
 # Point Cloud Parameters
 DEPTH_TRUNC = 8.0       # Ignore depths beyond this
 VOXEL_SIZE = 0.02       # Downsample resolution (2cm)
-CONFIDENCE_THRESH = 0.5 # 0.0 to disable confidence filter
+CONFIDENCE_THRESH = 0.5
 
 # Drift / Fusion Controls
 USE_KEYFRAMES = True          # Reduce redundant overlapping frames
