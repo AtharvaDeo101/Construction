@@ -7,11 +7,12 @@ import json
 import gc
 from PIL import Image
 from depth_anything_3.api import DepthAnything3
+import open3d as o3d
 
 MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"
 
 # Defaults when run as script (overridable via run_pipeline)
-DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\1.mp4"
+DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\room.mp4"
 DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\data\\scan_001"
 FPS_EXTRACT = 2
 IMG_SIZE = 518
@@ -238,23 +239,154 @@ def run_da3_pipeline(image_paths, output_root):
     print("\n IMPORTANT: Check viz/*.png files!")
 
 
+
+def generate_raw_pointcloud(output_dir: str):
+    """
+    Read transforms.json + depth maps, create raw fused point cloud.
+    Saves to output_dir/pointcloud/raw_cloud.ply
+    """
+    print(f"\n{'='*60}")
+    print("GENERATING RAW POINT CLOUD")
+    print(f"{'='*60}\n")
+    
+    transforms_path = os.path.join(output_dir, "transforms.json")
+    if not os.path.exists(transforms_path):
+        raise FileNotFoundError(f"transforms.json not found: {transforms_path}")
+    
+    with open(transforms_path, 'r') as f:
+        data = json.load(f)
+    
+    frames = data["frames"]
+    width = data["width"]
+    height = data["height"]
+    
+    print(f"Processing {len(frames)} frames...")
+    
+    all_points = []
+    all_colors = []
+    
+    for idx, frame in enumerate(frames):
+        # Load depth
+        depth_path = os.path.join(output_dir, frame["depth_path"])
+        depth_map = np.load(depth_path)
+        
+        # Load confidence if available
+        conf_path = frame.get("confidence_path")
+        if conf_path:
+            conf_map = np.load(os.path.join(output_dir, conf_path))
+        else:
+            conf_map = None
+        
+        # Load image for colors
+        img_path = os.path.join(output_dir, frame["file_path"])
+        img = cv2.imread(img_path)
+        if img is None:
+            print(f"Warning: Could not load image {img_path}, skipping frame {idx}")
+            continue
+            
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.0
+        
+        # CRITICAL FIX: Resize depth and confidence to match original image size
+        if depth_map.shape[0] != height or depth_map.shape[1] != width:
+            depth_map = cv2.resize(depth_map, (width, height), interpolation=cv2.INTER_LINEAR)
+            if conf_map is not None:
+                conf_map = cv2.resize(conf_map, (width, height), interpolation=cv2.INTER_LINEAR)
+        
+        # Create valid mask
+        if conf_map is not None:
+            valid_mask = (conf_map > 0.5) & (depth_map > 0.01) & (depth_map < MAX_DEPTH_METERS)
+        else:
+            valid_mask = (depth_map > 0.01) & (depth_map < MAX_DEPTH_METERS)
+        
+        # Get camera matrices
+        c2w = np.array(frame["transform_matrix"])
+        intrinsic = np.array(frame["intrinsic_matrix"])
+        
+        # Create pixel grid
+        v, u = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
+        
+        # Apply valid mask
+        u_valid = u[valid_mask]
+        v_valid = v[valid_mask]
+        depth_valid = depth_map[valid_mask]
+        colors_valid = img_rgb[valid_mask]
+        
+        if len(depth_valid) == 0:
+            print(f"Warning: No valid points in frame {idx}, skipping")
+            continue
+        
+        # Backproject to camera coordinates
+        fx = intrinsic[0, 0]
+        fy = intrinsic[1, 1]
+        cx = intrinsic[0, 2]
+        cy = intrinsic[1, 2]
+        
+        x_cam = (u_valid - cx) * depth_valid / fx
+        y_cam = (v_valid - cy) * depth_valid / fy
+        z_cam = depth_valid
+        
+        points_cam = np.stack([x_cam, y_cam, z_cam], axis=1)
+        
+        # Transform to world coordinates
+        points_cam_h = np.hstack([points_cam, np.ones((points_cam.shape[0], 1))])
+        points_world = (c2w @ points_cam_h.T).T[:, :3]
+        
+        all_points.append(points_world)
+        all_colors.append(colors_valid)
+        
+        if (idx + 1) % 10 == 0:
+            print(f"  Processed {idx+1}/{len(frames)} frames")
+    
+    if len(all_points) == 0:
+        raise RuntimeError("No valid points generated from any frame!")
+    
+    print("\nMerging point clouds...")
+    all_points = np.vstack(all_points)
+    all_colors = np.vstack(all_colors)
+    
+    print(f"Total points: {len(all_points):,}")
+    
+    # Create Open3D point cloud
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(all_points)
+    pcd.colors = o3d.utility.Vector3dVector(all_colors)
+    
+    # Save
+    pointcloud_dir = os.path.join(output_dir, "pointcloud")
+    os.makedirs(pointcloud_dir, exist_ok=True)
+    
+    output_path = os.path.join(pointcloud_dir, "raw_cloud.ply")
+    o3d.io.write_point_cloud(output_path, pcd)
+    
+    print(f"\n✓ Saved raw point cloud: {output_path}")
+    print(f"  Points: {len(all_points):,}")
+    
+    return output_path
+
+
+
 def run_step1(video_path: str, output_dir: str, fps_extract: int = FPS_EXTRACT) -> None:
     """
     Run full Step 1 pipeline: extract frames from video, run DA3 depth+pose, write to output_dir.
-    output_dir will contain transforms.json, images/, depth/, viz/.
+    output_dir will contain transforms.json, images/, depth/, viz/, and pointcloud/raw_cloud.ply
     """
     temp_img_dir = os.path.join(output_dir, "images_temp")
     try:
         print("Extracting frames from video")
         frame_paths = extract_frames(video_path, temp_img_dir, fps=fps_extract)
+        
         print("\nRunning DA3 inference")
         run_da3_pipeline(frame_paths, output_dir)
+        
+        print("\nGenerating raw point cloud")
+        generate_raw_pointcloud(output_dir)
+        
     finally:
         if os.path.exists(temp_img_dir):
             import shutil
             shutil.rmtree(temp_img_dir)
-            print("Temporary files removal")
-            
+            print("\n✓ Cleanup complete")
+
 
 
 if __name__ == "__main__":
