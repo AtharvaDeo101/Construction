@@ -13,15 +13,11 @@ try:
     import cupy as cp
     CUDA_AVAILABLE = True
     print(f"✓ CuPy GPU acceleration enabled")
-    print(f"  CUDA Version: {cp.cuda.runtime.runtimeGetVersion()}")
-    gpu_name = cp.cuda.runtime.getDeviceProperties(0)['name']
-    if isinstance(gpu_name, bytes):
-        gpu_name = gpu_name.decode()
-    print(f"  GPU: {gpu_name}")
+
 except ImportError as e:
     CUDA_AVAILABLE = False
-    print("⚠ CuPy not available. Running on CPU.")
-    print(f"  Install: pip install cupy-cuda12x")
+    print(" Running on CPU.")
+
 
 # Check Open3D CUDA availability
 o3d_cuda = o3d.core.Device("CUDA:0") if o3d.core.cuda.is_available() else None

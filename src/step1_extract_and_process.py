@@ -12,7 +12,7 @@ import open3d as o3d
 MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"
 
 # Defaults when run as script (overridable via run_pipeline)
-DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\APPLE.mp4"
+DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\WhatsApp Video 2026-02-03 at 3.09.03 PM.mp4"
 DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\data\\scan_001"
 FPS_EXTRACT = 2
 IMG_SIZE = 518
