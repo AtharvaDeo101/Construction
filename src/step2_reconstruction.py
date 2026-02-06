@@ -49,9 +49,6 @@ FLOORPLAN_RESOLUTION = 1024
 SHOW_VISUALIZATIONS = True
 VISUALIZATION_MODE = "web"
 
-# -------------------------------------------------------------
-# GPU Utilities
-# -------------------------------------------------------------
 def to_gpu(arr):
     """Move numpy array to GPU if available"""
     if CUDA_AVAILABLE and isinstance(arr, np.ndarray):
@@ -85,8 +82,7 @@ def gpu_dbscan_hybrid(xy_points, eps=0.04, min_samples=10):
     # Move data to GPU
     xy_gpu = cp.asarray(xy_points, dtype=cp.float32)
     
-    # GPU-accelerated pairwise distance matrix
-    # For large datasets, use chunked computation to avoid OOM
+
     chunk_size = min(5000, n_points)
     
     if n_points <= chunk_size:
