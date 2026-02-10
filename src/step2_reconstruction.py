@@ -151,6 +151,7 @@ def downsample_and_filter_pointcloud(pcd: o3d.geometry.PointCloud) -> o3d.geomet
 
     return pcd_rad
 
+
 def visualize_model(geometry, window_name="3D Model"):
     """Smart visualization dispatcher"""
     if VISUALIZATION_MODE == "web":

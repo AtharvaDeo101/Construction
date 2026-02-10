@@ -12,14 +12,14 @@ export function GallerySection() {
   const lastScrollRef = useRef(0);
 
   const images = [
-    { src: "/images/bottle-bike.png", alt: "Thermal bottle on bike" },
-    { src: "/images/bottle-lake.png", alt: "Thermal bottle by lake" },
-    { src: "/images/bottle-water.png", alt: "Thermal bottle in water" },
-    { src: "/images/bottle-stream.png", alt: "Thermal bottle by stream" },
-    { src: "/images/bottle-fire.png", alt: "Thermal bottle by fire" },
-    { src: "/images/bottle-snow.png", alt: "Thermal bottle in snow" },
-    { src: "/images/bottle-mountain.png", alt: "Thermal bottle on mountain" },
-    { src: "/images/bottle-canyon.png", alt: "Thermal bottle at canyon" },
+    { src: "/images/realworkhard-image-editing-101040_640.jpg", alt: "Thermal bottle on bike" },
+    // { src: "/images/bottle-lake.png", alt: "Thermal bottle by lake" },
+    // { src: "/images/bottle-water.png", alt: "Thermal bottle in water" },
+    // { src: "/images/bottle-stream.png", alt: "Thermal bottle by stream" },
+    // { src: "/images/bottle-fire.png", alt: "Thermal bottle by fire" },
+    // { src: "/images/bottle-snow.png", alt: "Thermal bottle in snow" },
+    // { src: "/images/bottle-mountain.png", alt: "Thermal bottle on mountain" },
+    // { src: "/images/bottle-canyon.png", alt: "Thermal bottle at canyon" },
   ];
 
   // Calculate section height based on content width
