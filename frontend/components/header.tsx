@@ -58,7 +58,7 @@ export function Header() {
             href="#reserve"
             className={`px-4 py-2 text-sm font-medium transition-all rounded-full ${isScrolled ? "bg-foreground text-background hover:opacity-80" : "bg-white text-foreground hover:bg-white/90"}`}
           >
-            Buy the product
+            Get started
           </Link>
         </div>
 

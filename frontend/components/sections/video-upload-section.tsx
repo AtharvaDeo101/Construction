@@ -1,9 +1,7 @@
 "use client";
 
-import React from "react"
-
-import { useRef, useState } from "react";
-import { Camera, Upload, Play, X } from "lucide-react";
+import React, { useRef, useState } from "react";
+import { Camera, Upload, X } from "lucide-react";
 
 export function VideoUploadSection() {
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -33,7 +31,7 @@ export function VideoUploadSection() {
         video: { facingMode: "environment" },
         audio: true,
       });
-      
+
       if (cameraVideoRef.current) {
         cameraVideoRef.current.srcObject = stream;
         streamRef.current = stream;
@@ -99,8 +97,25 @@ export function VideoUploadSection() {
   };
 
   return (
-    <section className="min-h-screen bg-background px-4 py-20 md:py-32">
-      <div className="mx-auto max-w-4xl">
+    <section className="relative min-h-screen bg-background px-4 py-20 md:py-32 overflow-hidden">
+      {/* Background video */}
+      <div className="pointer-events-none absolute inset-0 z-0">
+        <div className="relative h-full w-full">
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="absolute inset-0 h-full w-full object-cover"
+            src="https://pixabay.com/videos/download/x-6973_medium.mp4"
+          />
+        </div>
+        {/* Optional dark overlay for readability */}
+        <div className="absolute inset-0 bg-black/40" />
+      </div>
+
+      {/* Foreground content */}
+      <div className="relative z-10 mx-auto max-w-4xl">
         {/* Section Title */}
         <div className="mb-16 text-center">
           <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
