@@ -6,21 +6,31 @@ import { Camera, Upload, X } from "lucide-react";
 export function VideoUploadSection() {
   const videoInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const [uploadedVideo, setUploadedVideo] = useState<string | null>(null);
+  const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processError, setProcessError] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    outputDir: string;
+    transformsPath: string;
+    pointCloudPath: string;
+  } | null>(null);
 
   // Handle file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && file.type.startsWith("video/")) {
       const url = URL.createObjectURL(file);
-      setUploadedVideo(url);
+      setUploadedVideoUrl(url);
+      setUploadedFile(file);
+      setResult(null);
+      setProcessError(null);
     }
   };
 
@@ -68,9 +78,16 @@ export function VideoUploadSection() {
 
     recorder.onstop = () => {
       const blob = new Blob(chunks, { type: "video/webm" });
+      const file = new File([blob], `capture-${Date.now()}.webm`, {
+        type: "video/webm",
+      });
+
       const url = URL.createObjectURL(blob);
-      setUploadedVideo(url);
+      setUploadedVideoUrl(url);
+      setUploadedFile(file);
       setRecordedChunks(chunks);
+      setResult(null);
+      setProcessError(null);
     };
 
     recorder.start();
@@ -87,13 +104,51 @@ export function VideoUploadSection() {
     }
   };
 
-  // Clear uploaded video
+  // Clear uploaded/recorded video
   const clearVideo = () => {
-    if (uploadedVideo) {
-      URL.revokeObjectURL(uploadedVideo);
+    if (uploadedVideoUrl) {
+      URL.revokeObjectURL(uploadedVideoUrl);
     }
-    setUploadedVideo(null);
+    setUploadedVideoUrl(null);
+    setUploadedFile(null);
     setRecordedChunks([]);
+    setResult(null);
+    setProcessError(null);
+  };
+
+  // Call backend to process video → step1 + step2
+  const handleProcessVideo = async () => {
+    if (!uploadedFile) {
+      alert("Please upload or record a video first.");
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      setProcessError(null);
+      setResult(null);
+
+      const formData = new FormData();
+      formData.append("video", uploadedFile);
+
+      const res = await fetch("/api/process-video", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || "Processing failed");
+      }
+
+      const json = await res.json();
+      setResult(json);
+    } catch (err: any) {
+      console.error(err);
+      setProcessError(err.message || "Processing failed");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -110,28 +165,26 @@ export function VideoUploadSection() {
             src="\images\upload.mp4"
           />
         </div>
-        {/* Optional dark overlay for readability */}
         <div className="absolute inset-0 bg-black/40" />
       </div>
 
       {/* Foreground content */}
       <div className="relative z-10 mx-auto max-w-4xl">
-        {/* Section Title */}
-        <div className="mb-16 text-center">
-          <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
+        <div className="mb-8 text-center">
+          <h1 className="mb-2 text-4xl font-bold tracking-tight md:text-5xl">
             Upload Your Content
           </h1>
           <p className="text-lg text-muted-foreground">
-            Capture or upload a video to explore our interactive gallery
+            Capture or upload a video to generate a 3D model with camera poses
           </p>
         </div>
 
-        {/* Video Display */}
-        {uploadedVideo && (
-          <div className="mb-12 overflow-hidden rounded-2xl bg-black/5">
+        {/* Video preview */}
+        {uploadedVideoUrl && (
+          <div className="mb-8 overflow-hidden rounded-2xl bg-black/5">
             <div className="relative aspect-video w-full bg-black">
               <video
-                src={uploadedVideo}
+                src={uploadedVideoUrl}
                 controls
                 className="h-full w-full object-contain"
               />
@@ -146,9 +199,9 @@ export function VideoUploadSection() {
           </div>
         )}
 
-        {/* Camera Preview */}
-        {isCameraActive && !uploadedVideo && (
-          <div className="mb-12 overflow-hidden rounded-2xl bg-black">
+        {/* Camera preview */}
+        {isCameraActive && !uploadedVideoUrl && (
+          <div className="mb-8 overflow-hidden rounded-2xl bg-black">
             <div className="relative aspect-video w-full bg-black">
               <video
                 ref={cameraVideoRef}
@@ -160,10 +213,10 @@ export function VideoUploadSection() {
           </div>
         )}
 
-        {/* Upload Options */}
-        {!uploadedVideo && !isCameraActive && (
-          <div className="mb-12 grid gap-6 md:grid-cols-2">
-            {/* File Upload */}
+        {/* Upload / capture options */}
+        {!uploadedVideoUrl && !isCameraActive && (
+          <div className="mb-8 grid gap-6 md:grid-cols-2">
+            {/* File upload */}
             <div className="group relative overflow-hidden rounded-2xl border-2 border-dashed border-border bg-secondary/50 p-12 text-center transition-all hover:border-foreground hover:bg-secondary">
               <input
                 ref={videoInputRef}
@@ -185,7 +238,7 @@ export function VideoUploadSection() {
               </div>
             </div>
 
-            {/* Camera Capture */}
+            {/* Camera capture */}
             <button
               onClick={startCamera}
               className="group relative overflow-hidden rounded-2xl border-2 border-dashed border-border bg-secondary/50 p-12 text-center transition-all hover:border-foreground hover:bg-secondary"
@@ -205,9 +258,9 @@ export function VideoUploadSection() {
           </div>
         )}
 
-        {/* Camera Controls */}
+        {/* Camera controls */}
         {isCameraActive && (
-          <div className="mb-12 flex flex-wrap justify-center gap-4">
+          <div className="mb-8 flex flex-wrap justify-center gap-4">
             {!isRecording ? (
               <button
                 onClick={startRecording}
@@ -235,22 +288,55 @@ export function VideoUploadSection() {
           </div>
         )}
 
-        {/* Info Text */}
-        <div className="rounded-2xl bg-secondary/50 p-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            {uploadedVideo
-              ? "Video ready! Scroll down to explore the gallery."
+        {/* Process button + status */}
+        <div className="mb-6 flex flex-col items-center gap-4">
+          <button
+            onClick={handleProcessVideo}
+            disabled={!uploadedFile || isProcessing}
+            className="rounded-full bg-foreground px-8 py-3 font-semibold text-background transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isProcessing ? "Processing 3D model..." : "Generate 3D Model"}
+          </button>
+
+          <p className="text-sm text-muted-foreground text-center">
+            {uploadedVideoUrl
+              ? "Video ready. Click “Generate 3D Model” to run depth + pose + reconstruction."
               : isCameraActive
               ? isRecording
                 ? "Recording in progress..."
                 : "Camera is ready. Press 'Start Recording' to begin."
               : "Upload a video or use your device camera to get started."}
           </p>
+
+          {processError && (
+            <p className="text-sm text-red-500">{processError}</p>
+          )}
+
+          {result && (
+            <div className="mt-4 w-full max-w-xl rounded-xl border border-border bg-secondary/40 p-4 text-sm text-left">
+              <p className="font-semibold mb-2">3D model generated:</p>
+              <ul className="space-y-1">
+                <li>
+                  Output directory:{" "}
+                  <code className="break-all">{result.outputDir}</code>
+                </li>
+                <li>
+                  Camera poses (transforms.json):{" "}
+                  <code className="break-all">{result.transformsPath}</code>
+                </li>
+                <li>
+                  Point cloud:{" "}
+                  <code className="break-all">{result.pointCloudPath}</code>
+                </li>
+              </ul>
+              <p className="mt-2 text-muted-foreground">
+                Camera pose (including orientation) is used to fuse depth into a
+                global 3D point cloud.
+              </p>
+            </div>
+          )}
         </div>
       </div>
-
-      {/* Hidden canvas for recording */}
-      <canvas ref={canvasRef} className="hidden" />
     </section>
   );
 }
