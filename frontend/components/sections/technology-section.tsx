@@ -198,7 +198,7 @@ export function TechnologySection() {
               }}
             >
               <Image
-                src="https://images.unsplash.com/photo-1501555088652-021faa106b9b?q=80&w=2000"
+                src="https://c4.wallpaperflare.com/wallpaper/379/762/374/house-digital-art-engineering-drawing-wallpaper-preview.jpg"
                 alt="Aerial view of camping expedition in wilderness"
                 fill
                 className="object-cover"

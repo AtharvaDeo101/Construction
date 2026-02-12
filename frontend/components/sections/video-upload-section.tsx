@@ -107,7 +107,7 @@ export function VideoUploadSection() {
             muted
             playsInline
             className="absolute inset-0 h-full w-full object-cover"
-            src="https://pixabay.com/videos/download/x-6973_medium.mp4"
+            src="\images\upload.mp4"
           />
         </div>
         {/* Optional dark overlay for readability */}

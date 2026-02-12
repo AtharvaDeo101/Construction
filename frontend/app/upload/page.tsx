@@ -8,7 +8,7 @@ export default function UploadPage() {
   return (
     <main className="min-h-screen bg-background">
       <Header />
-      <HeroSection />
+      {/* <HeroSection /> */}
       <VideoUploadSection />
       <UploadGallerySection />
       <FooterSection />
