@@ -34,22 +34,39 @@ export function VideoUploadSection() {
     }
   };
 
-  // Start camera
+  // Start camera and show live preview
   const startCamera = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("Camera not supported in this browser / context.");
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
         audio: true,
       });
 
+      streamRef.current = stream;
+      setIsCameraActive(true);
+      setUploadedVideoUrl(null);
+      setUploadedFile(null);
+      setRecordedChunks([]);
+      setResult(null);
+      setProcessError(null);
+
       if (cameraVideoRef.current) {
         cameraVideoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        setIsCameraActive(true);
+        // Important: explicitly start playback
+        cameraVideoRef.current
+          .play()
+          .catch((err) => console.warn("camera play() failed:", err));
       }
     } catch (err) {
       console.error("Error accessing camera:", err);
-      alert("Unable to access camera. Please check permissions.");
+      alert(
+        "Unable to access camera. Make sure you are on HTTPS/localhost and have allowed camera permission."
+      );
     }
   };
 
@@ -68,12 +85,22 @@ export function VideoUploadSection() {
     if (!streamRef.current) return;
 
     const chunks: Blob[] = [];
-    const recorder = new MediaRecorder(streamRef.current, {
-      mimeType: "video/webm;codecs=vp9",
-    });
+    let recorder: MediaRecorder;
+
+    try {
+      recorder = new MediaRecorder(streamRef.current, {
+        mimeType: "video/webm;codecs=vp9",
+      });
+    } catch (e) {
+      console.error("MediaRecorder init error:", e);
+      alert("MediaRecorder not supported with this mimeType in this browser.");
+      return;
+    }
 
     recorder.ondataavailable = (e) => {
-      chunks.push(e.data);
+      if (e.data && e.data.size > 0) {
+        chunks.push(e.data);
+      }
     };
 
     recorder.onstop = () => {
@@ -93,6 +120,14 @@ export function VideoUploadSection() {
     recorder.start();
     setMediaRecorder(recorder);
     setIsRecording(true);
+
+    // Ensure preview keeps playing from the same stream while recording
+    if (cameraVideoRef.current && cameraVideoRef.current.srcObject !== streamRef.current) {
+      cameraVideoRef.current.srcObject = streamRef.current;
+      cameraVideoRef.current
+        .play()
+        .catch((err) => console.warn("camera play() during recording failed:", err));
+    }
   };
 
   // Stop recording
@@ -100,7 +135,8 @@ export function VideoUploadSection() {
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
       setIsRecording(false);
-      stopCamera();
+      // optional: keep camera open so they can re-record
+      // stopCamera();
     }
   };
 
@@ -162,7 +198,7 @@ export function VideoUploadSection() {
             muted
             playsInline
             className="absolute inset-0 h-full w-full object-cover"
-            src="\images\upload.mp4"
+            src="/images/upload.mp4"
           />
         </div>
         <div className="absolute inset-0 bg-black/40" />
@@ -179,7 +215,7 @@ export function VideoUploadSection() {
           </p>
         </div>
 
-        {/* Video preview */}
+        {/* Recorded video preview */}
         {uploadedVideoUrl && (
           <div className="mb-8 overflow-hidden rounded-2xl bg-black/5">
             <div className="relative aspect-video w-full bg-black">
@@ -188,6 +224,9 @@ export function VideoUploadSection() {
                 controls
                 className="h-full w-full object-contain"
               />
+              <div className="absolute left-4 top-4 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white">
+                Recorded video
+              </div>
               <button
                 onClick={clearVideo}
                 className="absolute right-4 top-4 rounded-full bg-background/80 p-2 backdrop-blur-sm transition-all hover:bg-background"
@@ -199,16 +238,23 @@ export function VideoUploadSection() {
           </div>
         )}
 
-        {/* Camera preview */}
+        {/* Live camera preview – this is exactly what is being recorded */}
         {isCameraActive && !uploadedVideoUrl && (
           <div className="mb-8 overflow-hidden rounded-2xl bg-black">
             <div className="relative aspect-video w-full bg-black">
               <video
                 ref={cameraVideoRef}
                 autoPlay
+                muted // important for some browsers
                 playsInline
                 className="h-full w-full object-cover"
               />
+              {isRecording && (
+                <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-red-400">
+                  <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                  REC
+                </div>
+              )}
             </div>
           </div>
         )}
