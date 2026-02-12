@@ -12,11 +12,11 @@ export function GallerySection() {
   const lastScrollRef = useRef(0);
 
   const images = [
-    { src: "/images/realworkhard-image-editing-101040_640.jpg", alt: "Thermal bottle on bike" },
-    // { src: "/images/bottle-lake.png", alt: "Thermal bottle by lake" },
-    // { src: "/images/bottle-water.png", alt: "Thermal bottle in water" },
-    // { src: "/images/bottle-stream.png", alt: "Thermal bottle by stream" },
-    // { src: "/images/bottle-fire.png", alt: "Thermal bottle by fire" },
+    { src: "/images/gallary1.webp", alt: "room" },
+    { src: "/images/gallary2.webp", alt: "Thermal bottle by lake" },
+    { src: "/images/gallary3.webp", alt: "Thermal bottle in water" },
+    { src: "/images/gallary4.webp", alt: "Thermal bottle by stream" },
+    { src: "/images/gallary5.webp", alt: "Thermal bottle by fire" },
     // { src: "/images/bottle-snow.png", alt: "Thermal bottle in snow" },
     // { src: "/images/bottle-mountain.png", alt: "Thermal bottle on mountain" },
     // { src: "/images/bottle-canyon.png", alt: "Thermal bottle at canyon" },
@@ -114,7 +114,7 @@ export function GallerySection() {
             {images.map((image, index) => (
               <div
                 key={index}
-                className="relative h-[70vh] w-[85vw] flex-shrink-0 overflow-hidden rounded-2xl md:w-[60vw] lg:w-[45vw]"
+                className="relative h-[50vh] w-[60vw] flex-shrink-0 overflow-hidden rounded-2xl md:w-[60vw] lg:w-[45vw]"
                 style={{
                   transform: 'translateZ(0)',
                   WebkitTransform: 'translateZ(0)',
