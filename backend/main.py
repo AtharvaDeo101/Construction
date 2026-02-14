@@ -13,6 +13,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .video_utils import validate_duration
+from .session_manager import (
+    create_session,
+    get_session_paths,
+    get_session_metadata,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 SESSIONS_DIR = ROOT / "sessions"
@@ -33,12 +38,12 @@ def _video_path(session_id: str, ext: str = ".mp4") -> Path:
     return _session_dir(session_id) / f"input{ext}"
 
 
-def _run_pipeline(session_path: str, video_path: str) -> None:
+def _run_pipeline(session_id: str, session_path: str, video_path: str) -> None:
     """Lazy-import and run pipeline so app starts without torch/open3d."""
     import matplotlib
     matplotlib.use("Agg")
     from .pipeline_runner import run_pipeline
-    run_pipeline(session_path, video_path)
+    run_pipeline(str(SESSIONS_DIR), session_id, session_path, video_path)
 
 
 def create_app():
@@ -85,8 +90,7 @@ def create_app():
                 raise HTTPException(400, msg)
 
             session_id = str(uuid.uuid4())
-            session_path = _session_dir(session_id)
-            session_path.mkdir(parents=True, exist_ok=True)
+            session_path = create_session(SESSIONS_DIR, session_id)
             dest = _video_path(session_id, ext)
             shutil.copy2(tmp_path, dest)
         finally:
@@ -99,34 +103,46 @@ def create_app():
         if session_path is None or dest is None or session_id is None:
             raise HTTPException(500, "Upload setup failed")
 
-        status_path = session_path / "status.json"
-        status_path.write_text('{"status": "processing", "detail": "Starting pipeline"}', encoding="utf-8")
-        background_tasks.add_task(_run_pipeline, str(session_path), str(dest))
+        from .session_manager import update_session_status
+        update_session_status(
+            SESSIONS_DIR, session_id,
+            status="processing",
+            progress=0.0,
+            extra={"detail": "Starting pipeline"},
+        )
+        background_tasks.add_task(_run_pipeline, session_id, str(session_path), str(dest))
         return JSONResponse({"session_id": session_id})
 
     @app.get("/api/sessions/{session_id}/status")
     async def get_status(session_id: str):
-        path = _session_dir(session_id)
-        if not path.is_dir():
+        try:
+            meta = get_session_metadata(SESSIONS_DIR, session_id)
+        except (ValueError, FileNotFoundError):
             raise HTTPException(404, "Session not found")
-        status_file = path / "status.json"
-        if not status_file.is_file():
-            return JSONResponse({"status": "pending", "detail": None, "outputs": {}})
-        import json
-        data = json.loads(status_file.read_text(encoding="utf-8"))
-        return JSONResponse(data)
+        return JSONResponse({
+            "status": meta.get("status", "pending"),
+            "created_at": meta.get("created_at"),
+            "progress": meta.get("progress", 0.0),
+            "error": meta.get("error"),
+            "detail": meta.get("detail"),
+            "outputs": meta.get("outputs", {}),
+        })
 
     @app.get("/api/sessions/{session_id}/outputs")
     async def list_outputs(session_id: str):
-        path = _session_dir(session_id)
-        if not path.is_dir():
+        try:
+            meta = get_session_metadata(SESSIONS_DIR, session_id)
+        except (ValueError, FileNotFoundError):
             raise HTTPException(404, "Session not found")
-        status_file = path / "status.json"
-        outputs = {}
-        if status_file.is_file():
-            import json
-            data = json.loads(status_file.read_text(encoding="utf-8"))
-            outputs = data.get("outputs") or {}
+        outputs = meta.get("outputs", {})
+        # Include standard paths if files exist
+        paths = get_session_paths(SESSIONS_DIR, session_id)
+        if paths.mesh_scene.is_file():
+            outputs["mesh"] = "mesh/scene.glb"
+        if paths.floorplan_png.is_file():
+            outputs["floorplan"] = "floorplan/floorplan.png"
+        if paths.metrics_stats.is_file():
+            outputs["stats"] = "metrics/stats.json"
         return JSONResponse({"outputs": outputs})
 
     @app.get("/api/sessions/{session_id}/outputs/{filename:path}")
