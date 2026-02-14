@@ -541,10 +541,10 @@ def run_step3(step2_output_dir: str, save_dir: Optional[str] = None, show: bool 
     vis.plot_static({"A*": (path, stats)}, start_world, goal_world, save_path=grid_png, show=show)
     out_paths["occupancy_grid"] = grid_png
 
-    # Path animation GIF
-    gif_path = os.path.join(save_dir, "path_animation.gif")
-    vis.animate_planning(path, stats, start_world, goal_world, save_path=gif_path, show=show)
-    out_paths["path_animation"] = gif_path
+    # Path animation GIF (Disabled - too slow for web)
+    # gif_path = os.path.join(save_dir, "path_animation.gif")
+    # vis.animate_planning(path, stats, start_world, goal_world, save_path=gif_path, show=show)
+    # out_paths["path_animation"] = gif_path
 
     # Blueprint overlay
     bp_path = os.path.join(save_dir, "blueprint_with_path.png")

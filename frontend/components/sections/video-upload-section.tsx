@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useRef, useState } from "react";
-import { Camera, Upload, X } from "lucide-react";
+import React, { useRef, useState, useEffect } from "react";
+import { Camera, Upload, X, Loader2 } from "lucide-react";
+import { InteractiveModelViewer } from "../interactive-model-viewer";
 
 export function VideoUploadSection() {
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -19,7 +20,10 @@ export function VideoUploadSection() {
   const [result, setResult] = useState<{
     sessionId: string;
     status: string;
+    progress?: number;
+    detail?: string;
     outputs: Record<string, string>;
+    isRetrying?: boolean;
   } | null>(null);
 
   // Handle file upload
@@ -189,32 +193,15 @@ export function VideoUploadSection() {
       const session_id = data?.session_id;
       if (!session_id) throw new Error("No session_id returned");
 
-      setResult({ sessionId: session_id, status: "processing", outputs: {} });
+      // Set initial state - polling useEffect will take over from here
+      setResult({
+        sessionId: session_id,
+        status: "processing",
+        outputs: {},
+        progress: 0.1,
+        detail: "Starting pipeline"
+      } as any);
 
-      // Long-poll: backend waits until status changes, then responds (no spam)
-      const waitRes = await fetch(
-        `/api/sessions/${session_id}/status/wait?timeout=600&poll_interval=0.5`
-      );
-      if (!waitRes.ok) throw new Error("Failed to wait for status");
-      const statusData = await waitRes.json();
-
-      setResult((prev) =>
-        prev
-          ? { ...prev, status: statusData.status, outputs: statusData.outputs || {} }
-          : null
-      );
-
-      if (statusData.status === "error") {
-        throw new Error(statusData.error || statusData.detail || "Pipeline failed");
-      }
-
-      if (statusData.status === "done" && Object.keys(statusData.outputs || {}).length === 0) {
-        const outputsRes = await fetch(`/api/sessions/${session_id}/outputs`);
-        const outputsData = outputsRes.ok ? await outputsRes.json() : { outputs: {} };
-        setResult((prev) =>
-          prev ? { ...prev, outputs: outputsData.outputs || {} } : null
-        );
-      }
     } catch (err: any) {
       console.error(err);
       setProcessError(err.message || "Processing failed");
@@ -223,6 +210,56 @@ export function VideoUploadSection() {
       setIsProcessing(false);
     }
   };
+
+  // Poll for status every 4-5 seconds
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    if (result && result.status !== "done" && result.status !== "error") {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/sessions/${result.sessionId}/status`);
+
+          if (!res.ok) {
+            console.warn(`Polling status non-OK: ${res.status}`);
+            setResult(prev => prev ? { ...prev, isRetrying: true } : null);
+            return;
+          }
+
+          const data = await res.json();
+
+          setResult(prev => {
+            if (!prev || prev.sessionId !== result.sessionId) return prev;
+
+            // Only update if meaningful data changed
+            if (prev.status === data.status &&
+              (prev as any).progress === data.progress &&
+              (prev as any).detail === data.detail &&
+              JSON.stringify(prev.outputs) === JSON.stringify(data.outputs) &&
+              !prev.isRetrying) {
+              return prev;
+            }
+
+            return {
+              ...prev,
+              status: data.status,
+              progress: data.progress,
+              detail: data.detail,
+              outputs: data.outputs || {},
+              isRetrying: false
+            } as any;
+          });
+        } catch (err) {
+          console.error("Polling error:", err);
+          setResult(prev => prev ? { ...prev, isRetrying: true } : null);
+        }
+      }, 4500); // 4.5 seconds polling
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [result]);
 
   return (
     <section className="relative min-h-screen bg-background px-4 py-20 md:py-32 overflow-hidden">
@@ -385,10 +422,10 @@ export function VideoUploadSection() {
             {uploadedVideoUrl
               ? "Video ready. Click “Generate 3D Model” to run depth + pose + reconstruction."
               : isCameraActive
-              ? isRecording
-                ? "Recording in progress..."
-                : "Camera is ready. Press 'Start Recording' to begin."
-              : "Upload a video or use your device camera to get started."}
+                ? isRecording
+                  ? "Recording in progress..."
+                  : "Camera is ready. Press 'Start Recording' to begin."
+                : "Upload a video or use your device camera to get started."}
           </p>
 
           {processError && (
@@ -396,28 +433,92 @@ export function VideoUploadSection() {
           )}
 
           {result && (
-            <div className="mt-4 w-full max-w-xl rounded-xl border border-border bg-secondary/40 p-4 text-sm text-left">
-              <p className="font-semibold mb-2">
-                {result.status === "done" ? "3D model generated:" : `Status: ${result.status}`}
-              </p>
-              <p className="mb-2">
-                Session: <code className="break-all">{result.sessionId}</code>
-              </p>
-              {Object.keys(result.outputs).length > 0 && (
-                <ul className="space-y-1">
-                  {Object.entries(result.outputs).map(([key, path]) => (
-                    <li key={key}>
+            <div className="mt-8 w-full max-w-2xl rounded-2xl border border-border bg-secondary/20 p-6 backdrop-blur-md">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-xl font-semibold">
+                    {result.status === "done" ? "3D Model Ready" : "Processing Your Space"}
+                  </h3>
+                  <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
+                    Session: <code className="bg-muted px-1 rounded">{result.sessionId.slice(0, 8)}...</code>
+                    {result.status !== "done" && result.status !== "error" && (
+                      <span className="flex items-center gap-1 text-primary animate-pulse">
+                        <Loader2 size={14} className="animate-spin" />
+                        {result.isRetrying ? "Re-connecting..." : `${result.status}...`}
+                      </span>
+                    )}
+                  </p>
+                  {result.detail && (
+                    <p className="text-xs text-muted-foreground mt-2 italic flex items-center gap-2">
+                      <span className="h-1 w-1 rounded-full bg-primary animate-ping" />
+                      {result.detail}
+                    </p>
+                  )}
+                </div>
+                {result.status === "done" && (
+                  <div className="rounded-full bg-green-500/10 px-3 py-1 text-xs font-semibold text-green-500">
+                    Complete
+                  </div>
+                )}
+              </div>
+
+              {/* Progress Bar */}
+              {result.status !== "done" && result.status !== "error" && (
+                <div className="mb-6">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-secondary/50">
+                    <div
+                      className="h-full bg-primary transition-all duration-500 ease-out"
+                      style={{ width: `${((result as any).progress || 0) * 100}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex justify-between text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                    <span>Processing</span>
+                    <span>{Math.round(((result as any).progress || 0) * 100)}%</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Show 3D Viewer if done and GLB exists */}
+              {result.status === "done" && result.outputs?.mesh ? (
+                <InteractiveModelViewer url={`/api/sessions/${result.sessionId}/outputs/${result.outputs.mesh}`} />
+              ) : result.status !== "error" ? (
+                <div className="aspect-video w-full rounded-xl bg-black/5 flex flex-col items-center justify-center border border-dashed border-border p-8 text-center">
+                  <div className="relative mb-4">
+                    <div className="h-16 w-16 rounded-full border-4 border-primary/20" />
+                    <div className="absolute inset-0 h-16 w-16 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+                  </div>
+                  <h4 className="text-lg font-medium mb-1">Building Your 3D Model</h4>
+                  <p className="text-sm text-muted-foreground max-w-sm">
+                    We're converting your video into a detailed 3D mesh with Draco compression. This usually takes a few minutes.
+                  </p>
+                </div>
+              ) : null}
+
+              {result.status === "error" && (
+                <div className="rounded-xl bg-red-500/10 p-4 text-red-500 border border-red-500/20 mt-4">
+                  <p className="font-semibold">Processing Failed</p>
+                  <p className="text-sm opacity-90">{processError || "An unexpected error occurred."}</p>
+                </div>
+              )}
+
+              {Object.keys(result.outputs || {}).length > 0 && (
+                <div className="mt-6 pt-6 border-t border-border">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Downloadable Assets</p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {Object.entries(result.outputs).map(([key, path]) => (
                       <a
+                        key={key}
                         href={`/api/sessions/${result.sessionId}/outputs/${path}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-primary hover:underline"
+                        className="flex flex-col items-center gap-1 rounded-lg border border-border bg-background p-3 text-center transition-all hover:border-primary hover:shadow-md"
                       >
-                        {key}: {path}
+                        <span className="text-xs font-medium capitalize">{key.replace("_", " ")}</span>
+                        <span className="text-[10px] text-muted-foreground truncate w-full">{String(path).split('/').pop()}</span>
                       </a>
-                    </li>
-                  ))}
-                </ul>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           )}

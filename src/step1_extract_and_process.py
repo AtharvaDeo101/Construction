@@ -14,14 +14,14 @@ from PIL import Image
 from depth_anything_3.api import DepthAnything3
 import open3d as o3d
 
-MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"
+MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"  # DO NOT CHANGE - Specified by user for maximum quality
 
 # Defaults when run as script (overridable via run_pipeline)
 DEFAULT_VIDEO_PATH = r"C:\Users\kalea\Downloads\4095679-uhd_3840_2160_30fps.mp4"
 DEFAULT_OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
-FPS_EXTRACT = 2
-IMG_SIZE = 518
-MINI_BATCH_SIZE = 3
+FPS_EXTRACT = 1     # Lower frames = faster processing
+IMG_SIZE = 392      # Smaller images = faster inference
+MINI_BATCH_SIZE = 1 # Set to 1 for memory-constrained GPUs (e.g. 6GB RTX 3050)
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -108,15 +108,60 @@ def run_da3_pipeline(image_paths, output_root):
         rel_frame_paths.append(f"images/{filename}")
 
     print(f"\n{'='*60}")
-    print(f"Loading {MODEL_REPO}...")
-    print(f"Device: {DEVICE} | Input Size: {IMG_SIZE}x{IMG_SIZE}")
-    print(f"Mini-batch size: {MINI_BATCH_SIZE} frames")
+    print(f"Loading Depth-Anything-3 Pipeline...")
+    print(f"Target Repository: {MODEL_REPO}")
+    print(f"Device: {DEVICE}")
+    print(f"Input Size: {IMG_SIZE}x{IMG_SIZE}")
+    
+    if torch.cuda.is_available():
+        vram_free, vram_total = torch.cuda.mem_get_info()
+        print(f"VRAM: {vram_free/1024**3:.2f}GB free / {vram_total/1024**3:.2f}GB total")
+    
     print(f"{'='*60}\n")
 
-    model = DepthAnything3.from_pretrained(
-        MODEL_REPO,
-        local_files_only=False
-    ).to(DEVICE).eval()
+    try:
+        # Check if local directory exists for GIANT model
+        local_model_path = os.path.join(os.getcwd(), "models", "da3-giant-large")
+        
+        # Determine precision based on memory availability
+        # Giant model in FP16 takes ~6GB; in FP32 it takes ~12GB.
+        load_dtype = torch.float16 if DEVICE == 'cuda' else torch.float32
+        print(f"Loading model with precision: {load_dtype}")
+
+        if os.path.isdir(local_model_path):
+            print(f"Found local model at {local_model_path}. Loading from disk...")
+            model = DepthAnything3.from_pretrained(
+                local_model_path,
+                local_files_only=True
+            )
+        else:
+            print(f"Attempting to download/load from Hugging Face: {MODEL_REPO}")
+            model = DepthAnything3.from_pretrained(
+                MODEL_REPO,
+                local_files_only=False
+            )
+        
+        # Load directly to device with specified precision
+        model = model.to(DEVICE, dtype=load_dtype).eval()
+            
+    except Exception as e:
+        error_msg = str(e)
+        print(f"\nCRITICAL ERROR: Failed to load model '{MODEL_REPO}'")
+        print(f"Error details: {error_msg}")
+        
+        if "out of memory" in error_msg.lower():
+            print("\n!!! CUDA OUT OF MEMORY !!!")
+            print(f"The GIANT model requires ~6GB VRAM in FP16. Your GPU (RTX 3050 6GB) is at its limit.")
+            print("Try closing other applications (browsers, Discord, etc.) or switch to DA3NESTED-LARGE.")
+        
+        if "401" in error_msg or "RepositoryNotFound" in error_msg:
+            print("\nNOTE: The library might be incorrectly remapping the repo ID.")
+            print("To fix this, please download the model manually using huggingface-cli:")
+            print(f"  huggingface-cli download {MODEL_REPO} --local-dir models/da3-giant-large")
+            print("Then restart the process to load from the local folder.")
+        
+        # Raise with a clear message for the pipeline runner
+        raise RuntimeError(f"Model Load Failed ({MODEL_REPO}): {e}")
 
     all_depths = []
     all_extrinsics = []
@@ -137,12 +182,17 @@ def run_da3_pipeline(image_paths, output_root):
         # Load mini-batch as PIL RGB
         batch_images = [Image.open(p).convert("RGB") for p in batch_paths]
 
-        # Run inference on this mini-batch
+        # Run inference on this mini-batch with mixed precision (autocast)
+        # This resolves "expected scalar type Float but found Half" for layers like LayerNorm
         with torch.no_grad():
-            prediction = model.inference(
-                batch_images,
-                # input_size=IMG_SIZE,  # can be tuned if needed
-            )
+            with torch.cuda.amp.autocast(enabled=(DEVICE == 'cuda')):
+                prediction = model.inference(
+                    batch_images,
+                )
+        
+        # Injected progress reporting if function provided (set via global or monkeypatch)
+        if hasattr(run_da3_pipeline, "on_progress"):
+            run_da3_pipeline.on_progress(batch_idx + 1, num_batches)
 
         all_depths.append(prediction.depth)          # [N, H, W] float32
         all_extrinsics.append(prediction.extrinsics) # [N, 3, 4]
@@ -389,8 +439,18 @@ def run_step1(video_path: str, output_dir: str, fps_extract: int = FPS_EXTRACT) 
     finally:
         if os.path.exists(temp_img_dir):
             import shutil
-            shutil.rmtree(temp_img_dir)
-            print("\n✓ Cleanup complete")
+            import time
+            gc.collect()  # Release references so Windows can close file handles
+            for attempt in range(5):
+                try:
+                    shutil.rmtree(temp_img_dir)
+                    print("\n✓ Cleanup complete")
+                    break
+                except (PermissionError, OSError) as e:
+                    if attempt < 4:
+                        time.sleep(1.0)
+                    else:
+                        print(f"\n⚠ Could not remove temp dir (files in use): {e}")
 
 
 

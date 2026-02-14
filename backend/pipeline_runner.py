@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.step1_extract_and_process import run_step1
+from src.step1_extract_and_process import run_step1, run_da3_pipeline
 from src.blueprint import run_blueprint_generation
 from src.step3_path_planning import run_step3
 from backend.session_manager import get_session_paths, update_session_status
@@ -79,22 +79,32 @@ def _convert_ply_to_glb(
     # Optional simplification for large meshes (aim for <20MB GLB)
     if num_faces > max_faces and hasattr(mesh, "simplify_quadric_decimation"):
         try:
-            mesh = mesh.simplify_quadric_decimation(max_faces)
+            # trimesh passes first arg as percent (0-1); use face_count= to target triangle count
+            mesh = mesh.simplify_quadric_decimation(face_count=max_faces)
             logger.info("Simplified to %d faces (target <%d)", len(mesh.faces), max_faces)
         except Exception as e:
             logger.warning("Simplification failed, exporting full mesh: %s", e)
 
     glb_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        mesh.export(str(glb_path))
+        # Enable Draco compression for smaller GLB files.
+        # Trimesh export to GLB uses provide kwargs to the gltf exporter.
+        # trimesh.exchange.gltf.export_glb supports certain arguments.
+        logger.info("Exporting mesh to GLB with Draco compression...")
+        mesh.export(str(glb_path), file_type='glb', include_normals=True, draco=True)
     except Exception as e:
         logger.exception("trimesh export to GLB failed")
-        return False, f"Failed to export GLB: {e}"
+        # Try without Draco as a second attempt if it's a draco-related failure
+        try:
+            logger.info("Draco export failed, trying standard GLB export...")
+            mesh.export(str(glb_path), file_type='glb')
+        except Exception as e2:
+            return False, f"Failed to export GLB (standard fallback also failed): {e2}"
 
     if not glb_path.is_file():
         return False, "GLB file was not created"
     size_mb = glb_path.stat().st_size / (1024 * 1024)
-    logger.info("Exported scene.glb: %.2f MB", size_mb)
+    logger.info("Exported scene.glb: %.2f MB (compressed)", size_mb)
     return True, None
 
 
@@ -238,10 +248,26 @@ def run_pipeline(sessions_root: str, session_id: str, session_dir: str, video_pa
 
     set_status("processing", "Step 1: frame extraction and depth/pose estimation", progress=0.1)
     try:
-        # fps_extract=1: fewer frames than default (2), faster step1; increase for higher quality
+        # Granular progress for DA3 inference
+        def on_step1_progress(current, total):
+            prog = 0.1 + 0.3 * (current / total)
+            set_status("processing", f"Step 1: Running depth inference ({current}/{total})", progress=prog)
+        
+        run_da3_pipeline.on_progress = on_step1_progress
+        
+        # fps_extract=1: fewer frames than default (2), faster step1
         run_step1(video_path, session_dir, fps_extract=1)
     except Exception as e:
-        set_status("error", error=f"Step 1 failed: {e}\n{traceback.format_exc()}")
+        error_msg = str(e)
+        if "out of memory" in error_msg.lower():
+            friendly_err = (
+                "GPU Memory Exceeded (OOM). The GIANT model is too large for your GPU. "
+                "Try closing other apps or switching to a smaller model (e.g., DA3NESTED-LARGE)."
+            )
+            set_status("error", error=friendly_err)
+        else:
+            set_status("error", error=f"Step 1 failed: {e}")
+        logger.exception("Step 1 execution failed")
         raise
 
     set_status("processing", "Step 2: 3D reconstruction and blueprint", progress=0.4)
