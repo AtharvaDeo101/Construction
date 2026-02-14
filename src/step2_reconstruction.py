@@ -377,5 +377,17 @@ def main():
     print("\n✓ STEP 2 COMPLETE")
     print(f"Outputs written under: {output_dir}")
 
-if __name__ == "__main__":
-    main()
+import os
+import numpy as np
+import open3d as o3d
+# ... your other imports ...
+
+# Use env var from API route if present, fallback to your existing default
+DEFAULT_OUTPUT_DIR = os.getenv(
+    "CONSTRUCT_OUTPUT_DIR",
+    r"C:\Users\deoat\Desktop\Construct\data\scan_001"
+)
+
+RAW_POINTCLOUD_PATH = os.path.join(
+    DEFAULT_OUTPUT_DIR, "pointcloud", "raw_cloud.ply"
+)

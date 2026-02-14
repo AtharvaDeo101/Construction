@@ -28,7 +28,7 @@ async function saveOrientationJson(
 ): Promise<string | null> {
   if (!orientationJson) return null;
   try {
-    JSON.parse(orientationJson); // validate
+    JSON.parse(orientationJson);
   } catch {
     console.warn("Invalid orientation JSON, skipping save");
     return null;
@@ -46,8 +46,14 @@ function runPython(
   extraEnv: Record<string, string> = {}
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    // Adjust this to your venv / Python path
-    const pythonExe = path.join(PROJECT_ROOT, "..", ".venv", "Scripts", "python.exe");
+    // adjust to your Python/venv path if needed
+    const pythonExe = path.join(
+      PROJECT_ROOT,
+      "..",
+      ".venv",
+      "Scripts",
+      "python.exe"
+    );
     const env = { ...process.env, ...extraEnv };
 
     const proc = spawn(pythonExe, [scriptPath, ...args], {
@@ -111,7 +117,7 @@ export async function POST(req: NextRequest) {
     // STEP 1: video → depth + DA3 poses + raw_cloud.ply
     await runPython(step1Path, [videoPath, outputDir]);
 
-    // STEP 2: reconstruction, controlled via env output dir
+    // STEP 2: reconstruction/path planning for same scan
     await runPython(step2Path, [], {
       CONSTRUCT_OUTPUT_DIR: outputDir,
     });

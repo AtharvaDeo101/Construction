@@ -390,9 +390,30 @@ def run_step1(video_path: str, output_dir: str, fps_extract: int = FPS_EXTRACT) 
 
 
 if __name__ == "__main__":
+    import sys
+    import torch
+
     print("# STEP 1: VIDEO TO DEPTH + POSES")
+
+    # Usage:
+    #   python step1_extract_and_process.py <video_path> <output_dir>
+    if len(sys.argv) >= 3:
+        video_path = sys.argv[1]
+        output_dir = sys.argv[2]
+    else:
+        video_path = DEFAULT_VIDEO_PATH
+        output_dir = DEFAULT_OUTPUT_DIR
+        print("Using DEFAULT_VIDEO_PATH and DEFAULT_OUTPUT_DIR")
+
+    print(f"Video path: {video_path}")
+    print(f"Output dir: {output_dir}")
+
+    orientation_file = os.path.join(output_dir, "device_orientation.json")
+    if os.path.exists(orientation_file):
+        print(f"Found device orientation samples at: {orientation_file}")
+
     try:
-        run_step1(DEFAULT_VIDEO_PATH, DEFAULT_OUTPUT_DIR)
+        run_step1(video_path, output_dir)
     except torch.cuda.OutOfMemoryError:
         print("\nCUDA OUT OF MEMORY ERROR")
         import traceback

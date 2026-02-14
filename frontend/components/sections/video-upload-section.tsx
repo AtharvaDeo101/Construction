@@ -47,7 +47,7 @@ export function VideoUploadSection() {
     }
   };
 
-  // Start listening to device orientation ("gyro")
+  // Start orientation tracking
   const startOrientationTracking = async () => {
     if (typeof window === "undefined") return;
     if (orientationListenerRef.current) return;
@@ -65,7 +65,7 @@ export function VideoUploadSection() {
     };
 
     try {
-      // iOS 13+ needs explicit permission
+      // iOS 13+
       // @ts-ignore
       if (
         typeof DeviceOrientationEvent !== "undefined" &&
@@ -184,14 +184,13 @@ export function VideoUploadSection() {
       setRecordedChunks(chunks);
       setResult(null);
       setProcessError(null);
-      // orientationData already covers the camera-active interval
+      // orientationData already contains samples from this session
     };
 
     recorder.start();
     setMediaRecorder(recorder);
     setIsRecording(true);
 
-    // Make sure preview continues to play from same stream
     if (
       cameraVideoRef.current &&
       cameraVideoRef.current.srcObject !== streamRef.current
@@ -210,7 +209,6 @@ export function VideoUploadSection() {
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
       setIsRecording(false);
-      // keep camera running until user closes it
     }
   };
 
@@ -227,7 +225,7 @@ export function VideoUploadSection() {
     setOrientationData([]);
   };
 
-  // Call backend: send video + orientation → step1 + step2
+  // Call backend to process video → step1 + step2
   const handleProcessVideo = async () => {
     if (!uploadedFile) {
       alert("Please upload or record a video first.");
@@ -314,7 +312,7 @@ export function VideoUploadSection() {
           </div>
         )}
 
-        {/* Live camera preview – exactly what is being recorded */}
+        {/* Live camera preview */}
         {isCameraActive && !uploadedVideoUrl && (
           <div className="mb-8 overflow-hidden rounded-2xl bg-black">
             <div className="relative aspect-video w-full bg-black">
@@ -458,8 +456,8 @@ export function VideoUploadSection() {
                 )}
               </ul>
               <p className="mt-2 text-muted-foreground">
-                DA3 camera poses plus device orientation samples are stored
-                together for better motion analysis and reconstruction tuning.
+                DepthAnything3 camera poses and device orientation samples are
+                saved together for better 3D reconstruction and analysis.
               </p>
             </div>
           )}
