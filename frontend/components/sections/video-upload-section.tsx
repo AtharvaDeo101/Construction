@@ -3,10 +3,20 @@
 import React, { useRef, useState } from "react";
 import { Camera, Upload, X } from "lucide-react";
 
+type OrientationSample = {
+  t: number;                 // timestamp (ms since page load)
+  alpha: number | null;      // rotation around z axis (deg)
+  beta: number | null;       // rotation around x axis (deg)
+  gamma: number | null;      // rotation around y axis (deg)
+};
+
 export function VideoUploadSection() {
   const videoInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const orientationListenerRef =
+    useRef<((e: DeviceOrientationEvent) => void) | null>(null);
 
   const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -14,12 +24,14 @@ export function VideoUploadSection() {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
+  const [orientationData, setOrientationData] = useState<OrientationSample[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
   const [result, setResult] = useState<{
     outputDir: string;
     transformsPath: string;
     pointCloudPath: string;
+    orientationPath?: string;
   } | null>(null);
 
   // Handle file upload
@@ -31,6 +43,60 @@ export function VideoUploadSection() {
       setUploadedFile(file);
       setResult(null);
       setProcessError(null);
+      setOrientationData([]);
+    }
+  };
+
+  // Start listening to device orientation ("gyro")
+  const startOrientationTracking = async () => {
+    if (typeof window === "undefined") return;
+    if (orientationListenerRef.current) return;
+
+    const handler = (event: DeviceOrientationEvent) => {
+      setOrientationData((prev) => [
+        ...prev,
+        {
+          t: performance.now(),
+          alpha: event.alpha,
+          beta: event.beta,
+          gamma: event.gamma,
+        },
+      ]);
+    };
+
+    try {
+      // iOS 13+ needs explicit permission
+      // @ts-ignore
+      if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        // @ts-ignore
+        typeof DeviceOrientationEvent.requestPermission === "function"
+      ) {
+        // @ts-ignore
+        const response = await DeviceOrientationEvent.requestPermission();
+        if (response === "granted") {
+          window.addEventListener("deviceorientation", handler);
+          orientationListenerRef.current = handler;
+        } else {
+          console.warn("DeviceOrientation permission denied");
+        }
+      } else {
+        window.addEventListener("deviceorientation", handler);
+        orientationListenerRef.current = handler;
+      }
+    } catch (e) {
+      console.error("Error requesting device orientation permission:", e);
+    }
+  };
+
+  const stopOrientationTracking = () => {
+    if (typeof window === "undefined") return;
+    if (orientationListenerRef.current) {
+      window.removeEventListener(
+        "deviceorientation",
+        orientationListenerRef.current
+      );
+      orientationListenerRef.current = null;
     }
   };
 
@@ -54,18 +120,20 @@ export function VideoUploadSection() {
       setRecordedChunks([]);
       setResult(null);
       setProcessError(null);
+      setOrientationData([]);
 
       if (cameraVideoRef.current) {
         cameraVideoRef.current.srcObject = stream;
-        // Important: explicitly start playback
         cameraVideoRef.current
           .play()
           .catch((err) => console.warn("camera play() failed:", err));
       }
+
+      await startOrientationTracking();
     } catch (err) {
       console.error("Error accessing camera:", err);
       alert(
-        "Unable to access camera. Make sure you are on HTTPS/localhost and have allowed camera permission."
+        "Unable to access camera. Make sure you're on HTTPS/localhost and camera permission is allowed."
       );
     }
   };
@@ -78,6 +146,7 @@ export function VideoUploadSection() {
     }
     setIsCameraActive(false);
     setIsRecording(false);
+    stopOrientationTracking();
   };
 
   // Start recording
@@ -115,18 +184,24 @@ export function VideoUploadSection() {
       setRecordedChunks(chunks);
       setResult(null);
       setProcessError(null);
+      // orientationData already covers the camera-active interval
     };
 
     recorder.start();
     setMediaRecorder(recorder);
     setIsRecording(true);
 
-    // Ensure preview keeps playing from the same stream while recording
-    if (cameraVideoRef.current && cameraVideoRef.current.srcObject !== streamRef.current) {
+    // Make sure preview continues to play from same stream
+    if (
+      cameraVideoRef.current &&
+      cameraVideoRef.current.srcObject !== streamRef.current
+    ) {
       cameraVideoRef.current.srcObject = streamRef.current;
       cameraVideoRef.current
         .play()
-        .catch((err) => console.warn("camera play() during recording failed:", err));
+        .catch((err) =>
+          console.warn("camera play() during recording failed:", err)
+        );
     }
   };
 
@@ -135,8 +210,7 @@ export function VideoUploadSection() {
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
       setIsRecording(false);
-      // optional: keep camera open so they can re-record
-      // stopCamera();
+      // keep camera running until user closes it
     }
   };
 
@@ -150,9 +224,10 @@ export function VideoUploadSection() {
     setRecordedChunks([]);
     setResult(null);
     setProcessError(null);
+    setOrientationData([]);
   };
 
-  // Call backend to process video → step1 + step2
+  // Call backend: send video + orientation → step1 + step2
   const handleProcessVideo = async () => {
     if (!uploadedFile) {
       alert("Please upload or record a video first.");
@@ -166,6 +241,7 @@ export function VideoUploadSection() {
 
       const formData = new FormData();
       formData.append("video", uploadedFile);
+      formData.append("orientation", JSON.stringify(orientationData));
 
       const res = await fetch("/api/process-video", {
         method: "POST",
@@ -238,14 +314,14 @@ export function VideoUploadSection() {
           </div>
         )}
 
-        {/* Live camera preview – this is exactly what is being recorded */}
+        {/* Live camera preview – exactly what is being recorded */}
         {isCameraActive && !uploadedVideoUrl && (
           <div className="mb-8 overflow-hidden rounded-2xl bg-black">
             <div className="relative aspect-video w-full bg-black">
               <video
                 ref={cameraVideoRef}
                 autoPlay
-                muted // important for some browsers
+                muted
                 playsInline
                 className="h-full w-full object-cover"
               />
@@ -374,12 +450,25 @@ export function VideoUploadSection() {
                   Point cloud:{" "}
                   <code className="break-all">{result.pointCloudPath}</code>
                 </li>
+                {result.orientationPath && (
+                  <li>
+                    Device orientation:{" "}
+                    <code className="break-all">{result.orientationPath}</code>
+                  </li>
+                )}
               </ul>
               <p className="mt-2 text-muted-foreground">
-                Camera pose (including orientation) is used to fuse depth into a
-                global 3D point cloud.
+                DA3 camera poses plus device orientation samples are stored
+                together for better motion analysis and reconstruction tuning.
               </p>
             </div>
+          )}
+
+          {orientationData.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Collected {orientationData.length} orientation samples while the
+              camera was active.
+            </p>
           )}
         </div>
       </div>
