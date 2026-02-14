@@ -12,7 +12,7 @@ import warnings
 try:
     import cupy as cp
     CUDA_AVAILABLE = True
-    print(f"✓ CuPy GPU acceleration enabled")
+    print(f" CuPy GPU acceleration enabled")
 
 except ImportError as e:
     CUDA_AVAILABLE = False
@@ -22,13 +22,19 @@ except ImportError as e:
 # Check Open3D CUDA availability
 o3d_cuda = o3d.core.Device("CUDA:0") if o3d.core.cuda.is_available() else None
 if o3d_cuda:
-    print(f"✓ Open3D CUDA device available: {o3d_cuda}")
+    print(f"Open3D CUDA device available: {o3d_cuda}")
 else:
-    print("⚠ Open3D CUDA not available")
+    print("Open3D CUDA not available")
 
 
-DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\data\\scan_001"
-RAW_POINTCLOUD_PATH = os.path.join(DEFAULT_OUTPUT_DIR, "pointcloud", "raw_cloud.ply")
+DEFAULT_OUTPUT_DIR = os.getenv(
+    "CONSTRUCT_OUTPUT_DIR",
+    r"C:\Users\deoat\Desktop\Construct\data\scan_001"
+)
+
+RAW_POINTCLOUD_PATH = os.path.join(
+    DEFAULT_OUTPUT_DIR, "pointcloud", "raw_cloud.ply"
+)
 
 DEPTH_TRUNC = 8.0
 VOXEL_SIZE = 0.015
@@ -374,20 +380,8 @@ def main():
     # mesh = reconstruct_mesh_poisson(pcd_dedup, output_dir)
     # generate_floor_plan(pcd_dedup, output_dir)
 
-    print("\n✓ STEP 2 COMPLETE")
+    print("\nSTEP 2 COMPLETE")
     print(f"Outputs written under: {output_dir}")
 
-import os
-import numpy as np
-import open3d as o3d
-# ... your other imports ...
-
-# Use env var from API route if present, fallback to your existing default
-DEFAULT_OUTPUT_DIR = os.getenv(
-    "CONSTRUCT_OUTPUT_DIR",
-    r"C:\Users\deoat\Desktop\Construct\data\scan_001"
-)
-
-RAW_POINTCLOUD_PATH = os.path.join(
-    DEFAULT_OUTPUT_DIR, "pointcloud", "raw_cloud.ply"
-)
+if __name__ == "__main__":
+    main()

@@ -8,3 +8,4 @@ output/
 sessions/
 __pycache__/
 *.pyc
+data/

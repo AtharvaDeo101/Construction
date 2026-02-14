@@ -64,7 +64,7 @@ def extract_frames(video_path: str, out_dir: str, fps: int = 2):
         count += 1
 
     cap.release()
-    print(f"✓ Extracted {saved_count} frames to {out_dir}")
+    print(f"Extracted {saved_count} frames to {out_dir}")
 
     # Validate minimum frame count
     if saved_count < MIN_FRAMES:
@@ -230,7 +230,7 @@ def run_da3_pipeline(image_paths, output_root):
         json.dump(pose_data, f, indent=2)
 
     print(f"\n{'='*60}")
-    print("✓ Processing Complete!")
+    print("Processing Complete!")
     print(f"{'='*60}")
     print(f"Output directory: {output_root}")
     print(f" → {len(image_paths)} depth maps saved to depth/")
@@ -358,7 +358,7 @@ def generate_raw_pointcloud(output_dir: str):
     output_path = os.path.join(pointcloud_dir, "raw_cloud.ply")
     o3d.io.write_point_cloud(output_path, pcd)
     
-    print(f"\n✓ Saved raw point cloud: {output_path}")
+    print(f"\nSaved raw point cloud: {output_path}")
     print(f"  Points: {len(all_points):,}")
     
     return output_path
@@ -385,7 +385,7 @@ def run_step1(video_path: str, output_dir: str, fps_extract: int = FPS_EXTRACT) 
         if os.path.exists(temp_img_dir):
             import shutil
             shutil.rmtree(temp_img_dir)
-            print("\n✓ Cleanup complete")
+            print("\nCleanup complete")
 
 
 
@@ -393,7 +393,7 @@ if __name__ == "__main__":
     import sys
     import torch
 
-    print("# STEP 1: VIDEO TO DEPTH + POSES")
+    print(" STEP 1: VIDEO TO DEPTH + POSES")
 
     # Usage:
     #   python step1_extract_and_process.py <video_path> <output_dir>
