@@ -25,9 +25,8 @@ if o3d_cuda:
     print(f"✓ Open3D CUDA device available: {o3d_cuda}")
 else:
     print("⚠ Open3D CUDA not available")
+DEFAULT_OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
 
-
-DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\data\\scan_001"
 RAW_POINTCLOUD_PATH = os.path.join(DEFAULT_OUTPUT_DIR, "pointcloud", "raw_cloud.ply")
 
 DEPTH_TRUNC = 8.0

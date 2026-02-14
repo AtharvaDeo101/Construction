@@ -317,8 +317,10 @@ def render_blueprint(mesh, edges, output_dir: str):
     plt.close()
 
 
-def run_blueprint_generation(scan_dir: str, output_dir: str):
-    
+def run_blueprint_generation(scan_dir: str, output_dir: str, show_visualization: bool | None = None):
+    if show_visualization is not None:
+        global SHOW_VISUALIZATION
+        SHOW_VISUALIZATION = show_visualization
     create_output_dirs(output_dir)
     
     # Step 1: Create point cloud from video frames

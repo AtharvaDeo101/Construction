@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import sys
@@ -14,9 +15,87 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.step1_extract_and_process import run_step1
-from src.step2_reconstruction import run_step2
+from src.blueprint import run_blueprint_generation
 from src.step3_path_planning import run_step3
 from backend.session_manager import get_session_paths, update_session_status
+
+logger = logging.getLogger(__name__)
+
+# Step 2 mesh source priority: clean_mesh > mesh_for_viewer > room_model
+MESH_SOURCE_PRIORITY = [
+    "clean_mesh.ply",
+    "mesh_for_viewer.ply",
+    "room_model.ply",
+]
+MAX_FACES_FOR_WEB = 400_000  # target ~20MB GLB; simplify if above
+
+
+def _convert_ply_to_glb(
+    ply_path: Path,
+    glb_path: Path,
+    *,
+    max_faces: int = MAX_FACES_FOR_WEB,
+) -> tuple[bool, str | None]:
+    """
+    Convert PLY mesh to GLB (glTF binary) using trimesh.
+    Preserves vertex colors; optionally simplifies large meshes.
+    Returns (success, error_message).
+    """
+    try:
+        import trimesh
+    except ImportError as e:
+        return False, f"trimesh not installed: {e}"
+
+    if not ply_path.is_file():
+        return False, f"Source mesh not found: {ply_path}"
+
+    try:
+        loaded = trimesh.load(str(ply_path), process=False)
+    except Exception as e:
+        logger.exception("trimesh.load failed for %s", ply_path)
+        return False, f"Failed to load PLY: {e}"
+
+    # Handle Scene (multi-mesh) vs single Trimesh
+    if hasattr(loaded, "geometry"):
+        meshes = list(loaded.geometry.values()) if loaded.geometry else []
+        if not meshes:
+            return False, "PLY contains no mesh geometry"
+        mesh = trimesh.util.concatenate(meshes) if len(meshes) > 1 else meshes[0]
+    elif hasattr(loaded, "vertices") and hasattr(loaded, "faces"):
+        mesh = loaded
+    else:
+        return False, f"Unsupported trimesh result type: {type(loaded)}"
+
+    if not hasattr(mesh, "vertices") or mesh.vertices is None:
+        return False, "Mesh has no vertices"
+    if len(mesh.vertices) == 0:
+        return False, "Mesh has zero vertices"
+    if not hasattr(mesh, "faces") or mesh.faces is None or len(mesh.faces) == 0:
+        return False, "Mesh has no faces"
+
+    num_verts, num_faces = len(mesh.vertices), len(mesh.faces)
+    logger.info("Loaded mesh: %d vertices, %d faces from %s", num_verts, num_faces, ply_path.name)
+
+    # Optional simplification for large meshes (aim for <20MB GLB)
+    if num_faces > max_faces and hasattr(mesh, "simplify_quadric_decimation"):
+        try:
+            mesh = mesh.simplify_quadric_decimation(max_faces)
+            logger.info("Simplified to %d faces (target <%d)", len(mesh.faces), max_faces)
+        except Exception as e:
+            logger.warning("Simplification failed, exporting full mesh: %s", e)
+
+    glb_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mesh.export(str(glb_path))
+    except Exception as e:
+        logger.exception("trimesh export to GLB failed")
+        return False, f"Failed to export GLB: {e}"
+
+    if not glb_path.is_file():
+        return False, "GLB file was not created"
+    size_mb = glb_path.stat().st_size / (1024 * 1024)
+    logger.info("Exported scene.glb: %.2f MB", size_mb)
+    return True, None
 
 
 def _copy_to_standard_paths(
@@ -26,27 +105,33 @@ def _copy_to_standard_paths(
     base = Path(session_dir)
     paths = get_session_paths(sessions_root, session_id)
 
-    # Floorplan: blueprint/floorplan_2d.png -> floorplan/floorplan.png
+    # Floorplan: blueprint/floorplan_2d.png or 3d_blueprint_model.png -> floorplan/floorplan.png
     bp_floorplan = base / "blueprint" / "floorplan_2d.png"
+    if not bp_floorplan.is_file():
+        bp_floorplan = base / "blueprint" / "3d_blueprint_model.png"
     if bp_floorplan.is_file():
         paths.floorplan_png.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(bp_floorplan, paths.floorplan_png)
 
-    # Mesh: mesh/clean_mesh.ply (or mesh_for_viewer.ply) -> mesh/scene.glb
-    mesh_sources = [
-        base / "mesh" / "clean_mesh.ply",
-        base / "mesh" / "mesh_for_viewer.ply",
-        base / "mesh" / "room_model.ply",
-    ]
-    mesh_src = next((p for p in mesh_sources if p.is_file()), None)
+    # Mesh: PLY → GLB via trimesh (preserves colors; simplifies if large)
+    mesh_dir = base / "mesh"
+    mesh_src = next((mesh_dir / name for name in MESH_SOURCE_PRIORITY if (mesh_dir / name).is_file()), None)
     if mesh_src:
-        try:
-            import open3d as o3d
-            mesh = o3d.io.read_triangle_mesh(str(mesh_src))
-            paths.mesh_scene.parent.mkdir(parents=True, exist_ok=True)
-            o3d.io.write_triangle_mesh(str(paths.mesh_scene), mesh)
-        except Exception:
-            shutil.copy2(mesh_src, paths.mesh_scene.with_suffix(".ply"))
+        success, err = _convert_ply_to_glb(mesh_src, paths.mesh_scene)
+        if not success:
+            logger.warning("Mesh PLY→GLB conversion failed: %s", err)
+            update_session_status(
+                sessions_root, session_id,
+                extra={"mesh_conversion_error": err},
+            )
+            # Fallback: copy PLY so frontend can try loading it (or skip entirely)
+            try:
+                shutil.copy2(mesh_src, paths.mesh_scene.with_suffix(".ply"))
+                logger.info("Copied PLY fallback to %s", paths.mesh_scene.with_suffix(".ply"))
+            except OSError as e:
+                logger.warning("Could not copy PLY fallback: %s", e)
+    else:
+        logger.info("No mesh source found in %s (checked %s); skipping scene.glb", mesh_dir, MESH_SOURCE_PRIORITY)
 
     # Stats: step3 result stats + path_output.json if present
     stats_dict: dict = {}
@@ -91,8 +176,11 @@ def _collect_outputs(session_dir: str, step3_outputs: dict, session_id: str, ses
 
     # Step 2: blueprint, debug, pointcloud
     bp = base / "blueprint"
-    if "floorplan" not in out and (bp / "floorplan_2d.png").is_file():
-        out["floorplan"] = "blueprint/floorplan_2d.png"
+    if "floorplan" not in out:
+        if (bp / "floorplan_2d.png").is_file():
+            out["floorplan"] = "blueprint/floorplan_2d.png"
+        elif (bp / "3d_blueprint_model.png").is_file():
+            out["floorplan"] = "blueprint/3d_blueprint_model.png"
     if (bp / "wireframe_2d.png").is_file():
         out["wireframe"] = "blueprint/wireframe_2d.png"
     dbg = base / "debug"
@@ -101,9 +189,11 @@ def _collect_outputs(session_dir: str, step3_outputs: dict, session_id: str, ses
     if (dbg / "blueprint_comparison.png").is_file():
         out["blueprint_comparison"] = "debug/blueprint_comparison.png"
     if "mesh" not in out:
-        mesh_path = base / "mesh" / "clean_mesh.ply"
-        if mesh_path.is_file():
-            out["mesh"] = "mesh/clean_mesh.ply"
+        for name in MESH_SOURCE_PRIORITY:
+            mesh_path = base / "mesh" / name
+            if mesh_path.is_file():
+                out["mesh"] = f"mesh/{name}"
+                break
     pc_path = base / "pointcloud" / "colored_cloud.ply"
     if not pc_path.is_file():
         pc_path = base / "pointcloud" / "filtered_cloud.ply"
@@ -119,6 +209,19 @@ def run_pipeline(sessions_root: str, session_id: str, session_dir: str, video_pa
     Writes status to metadata.json. Uses session_dir as output for all steps.
     Copies outputs to standardized paths (mesh/scene.glb, floorplan/floorplan.png, metrics/stats.json).
     """
+    # Log CUDA availability for Step 1 (PyTorch/DepthAnything)
+    try:
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info("PyTorch device: %s", device)
+        if device == "cpu":
+            logger.warning(
+                "CUDA not available. For faster processing, install PyTorch with CUDA: "
+                "pip install torch --index-url https://download.pytorch.org/whl/cu121"
+            )
+    except ImportError:
+        pass
+
     def set_status(status: str, detail: str | None = None, progress: float | None = None, error: str | None = None, outputs: dict | None = None):
         extra: dict = {}
         if detail is not None:
@@ -135,14 +238,21 @@ def run_pipeline(sessions_root: str, session_id: str, session_dir: str, video_pa
 
     set_status("processing", "Step 1: frame extraction and depth/pose estimation", progress=0.1)
     try:
-        run_step1(video_path, session_dir)
+        # fps_extract=1: fewer frames than default (2), faster step1; increase for higher quality
+        run_step1(video_path, session_dir, fps_extract=1)
     except Exception as e:
         set_status("error", error=f"Step 1 failed: {e}\n{traceback.format_exc()}")
         raise
 
     set_status("processing", "Step 2: 3D reconstruction and blueprint", progress=0.4)
     try:
-        run_step2(session_dir, session_dir, show_visualizations=False, generate_mesh_flag=True)
+        run_blueprint_generation(session_dir, session_dir, show_visualization=False)
+        # Step3 expects colored_cloud.ply or filtered_cloud.ply; blueprint writes scene.ply
+        pc_dir = Path(session_dir) / "pointcloud"
+        scene_ply = pc_dir / "scene.ply"
+        colored_ply = pc_dir / "colored_cloud.ply"
+        if scene_ply.is_file() and not colored_ply.is_file():
+            shutil.copy2(scene_ply, colored_ply)
     except Exception as e:
         set_status("error", error=f"Step 2 failed: {e}\n{traceback.format_exc()}")
         raise

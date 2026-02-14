@@ -1,6 +1,11 @@
-
 import os
+
 import torch
+
+# Fix xformers/PyTorch compatibility: is_flash_attention_available was added in PyTorch 2.2+
+if not hasattr(torch.backends.cuda, "is_flash_attention_available"):
+    torch.backends.cuda.is_flash_attention_available = lambda: False
+
 import cv2
 import numpy as np
 import json
@@ -12,8 +17,8 @@ import open3d as o3d
 MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"
 
 # Defaults when run as script (overridable via run_pipeline)
-DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\WhatsApp Video 2026-02-03 at 3.09.03 PM.mp4"
-DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\data\\scan_001"
+DEFAULT_VIDEO_PATH = r"C:\Users\kalea\Downloads\4095679-uhd_3840_2160_30fps.mp4"
+DEFAULT_OUTPUT_DIR = r"C:\Users\kalea\OneDrive\Desktop\construct"
 FPS_EXTRACT = 2
 IMG_SIZE = 518
 MINI_BATCH_SIZE = 3

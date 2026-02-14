@@ -2,13 +2,15 @@
 API-only backend for use with Flutter or other clients."""
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -68,18 +70,20 @@ def create_app():
 
     @app.post("/api/upload-video")
     async def upload_video(background_tasks: BackgroundTasks, video: UploadFile = File(...)):
-        ext = Path(video.filename or "").suffix.lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            raise HTTPException(
-                400,
-                f"Invalid format. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
-            )
-        suffix = ext
         tmp_path = None
         session_path = None
         dest = None
         session_id = None
         try:
+            if not video.filename:
+                raise HTTPException(400, "No filename provided")
+            ext = Path(video.filename).suffix.lower()
+            if ext not in ALLOWED_EXTENSIONS:
+                raise HTTPException(
+                    400,
+                    f"Invalid format. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+                )
+            suffix = ext
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
             tmp_path = tmp.name
             content = await video.read()
@@ -93,25 +97,26 @@ def create_app():
             session_path = create_session(SESSIONS_DIR, session_id)
             dest = _video_path(session_id, ext)
             shutil.copy2(tmp_path, dest)
+
+            from .session_manager import update_session_status
+            update_session_status(
+                SESSIONS_DIR, session_id,
+                status="processing",
+                progress=0.0,
+                extra={"detail": "Starting pipeline"},
+            )
+            background_tasks.add_task(_run_pipeline, session_id, str(session_path), str(dest))
+            return JSONResponse({"session_id": session_id})
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, str(e))
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 try:
                     os.unlink(tmp_path)
                 except Exception:
                     pass
-
-        if session_path is None or dest is None or session_id is None:
-            raise HTTPException(500, "Upload setup failed")
-
-        from .session_manager import update_session_status
-        update_session_status(
-            SESSIONS_DIR, session_id,
-            status="processing",
-            progress=0.0,
-            extra={"detail": "Starting pipeline"},
-        )
-        background_tasks.add_task(_run_pipeline, session_id, str(session_path), str(dest))
-        return JSONResponse({"session_id": session_id})
 
     @app.get("/api/sessions/{session_id}/status")
     async def get_status(session_id: str):
@@ -126,6 +131,52 @@ def create_app():
             "error": meta.get("error"),
             "detail": meta.get("detail"),
             "outputs": meta.get("outputs", {}),
+        })
+
+    @app.get("/api/sessions/{session_id}/status/wait")
+    async def wait_for_status(
+        session_id: str,
+        timeout: int = Query(600, ge=1, le=3600, description="Max seconds to wait"),
+        poll_interval: float = Query(0.5, ge=0.2, le=2.0, description="Seconds between checks"),
+    ):
+        """Long-poll: block until status is 'done' or 'error', or timeout. Returns immediately if already terminal."""
+        try:
+            get_session_paths(SESSIONS_DIR, session_id)
+        except ValueError:
+            raise HTTPException(404, "Session not found")
+        session_root = _session_dir(session_id)
+        if not session_root.is_dir():
+            raise HTTPException(404, "Session not found")
+        metadata_path = session_root / "metadata.json"
+        elapsed = 0.0
+        while elapsed < timeout:
+            meta = {}
+            if metadata_path.is_file():
+                try:
+                    meta = json.loads(metadata_path.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    pass
+            status = meta.get("status", "pending")
+            if status in ("done", "error"):
+                return JSONResponse({
+                    "status": status,
+                    "created_at": meta.get("created_at"),
+                    "progress": meta.get("progress", 0.0),
+                    "error": meta.get("error"),
+                    "detail": meta.get("detail"),
+                    "outputs": meta.get("outputs", {}),
+                })
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+        meta = get_session_metadata(SESSIONS_DIR, session_id)
+        return JSONResponse({
+            "status": meta.get("status", "pending"),
+            "created_at": meta.get("created_at"),
+            "progress": meta.get("progress", 0.0),
+            "error": meta.get("error"),
+            "detail": meta.get("detail"),
+            "outputs": meta.get("outputs", {}),
+            "timeout": True,
         })
 
     @app.get("/api/sessions/{session_id}/outputs")
@@ -167,6 +218,7 @@ def create_app():
             "endpoints": {
                 "upload": "POST /api/upload-video",
                 "status": "GET /api/sessions/{session_id}/status",
+                "status_wait": "GET /api/sessions/{session_id}/status/wait",
                 "outputs": "GET /api/sessions/{session_id}/outputs",
                 "file": "GET /api/sessions/{session_id}/outputs/{filename}",
             },

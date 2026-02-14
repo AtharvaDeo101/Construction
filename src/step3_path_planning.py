@@ -733,6 +733,6 @@ if __name__ == "__main__":
         save_path = sys.argv[1]
     else:
         # Default Windows desktop path as specified by user
-        save_path = r"C:\Users\deoat\Desktop\Construct\output"
+        save_path = r"C:\Users\kalea\OneDrive\Desktop\construct"
     
     demo_pipeline(save_directory=save_path)

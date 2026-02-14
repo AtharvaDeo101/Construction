@@ -17,9 +17,9 @@ export function VideoUploadSection() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
   const [result, setResult] = useState<{
-    outputDir: string;
-    transformsPath: string;
-    pointCloudPath: string;
+    sessionId: string;
+    status: string;
+    outputs: Record<string, string>;
   } | null>(null);
 
   // Handle file upload
@@ -152,7 +152,7 @@ export function VideoUploadSection() {
     setProcessError(null);
   };
 
-  // Call backend to process video → step1 + step2
+  // Call backend to process video → step1 + step2 + step3
   const handleProcessVideo = async () => {
     if (!uploadedFile) {
       alert("Please upload or record a video first.");
@@ -167,21 +167,58 @@ export function VideoUploadSection() {
       const formData = new FormData();
       formData.append("video", uploadedFile);
 
-      const res = await fetch("/api/process-video", {
+      const uploadRes = await fetch("/api/upload-video", {
         method: "POST",
         body: formData,
       });
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || "Processing failed");
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text();
+        let errMsg = errText || "Upload failed";
+        try {
+          const errJson = JSON.parse(errText);
+          const d = errJson.detail;
+          errMsg = Array.isArray(d) ? d.map((x: unknown) => String(x)).join("; ") : (d != null ? String(d) : errMsg);
+        } catch {
+          if (errText) errMsg = errText;
+        }
+        throw new Error(errMsg);
       }
 
-      const json = await res.json();
-      setResult(json);
+      const data = await uploadRes.json();
+      const session_id = data?.session_id;
+      if (!session_id) throw new Error("No session_id returned");
+
+      setResult({ sessionId: session_id, status: "processing", outputs: {} });
+
+      // Long-poll: backend waits until status changes, then responds (no spam)
+      const waitRes = await fetch(
+        `/api/sessions/${session_id}/status/wait?timeout=600&poll_interval=0.5`
+      );
+      if (!waitRes.ok) throw new Error("Failed to wait for status");
+      const statusData = await waitRes.json();
+
+      setResult((prev) =>
+        prev
+          ? { ...prev, status: statusData.status, outputs: statusData.outputs || {} }
+          : null
+      );
+
+      if (statusData.status === "error") {
+        throw new Error(statusData.error || statusData.detail || "Pipeline failed");
+      }
+
+      if (statusData.status === "done" && Object.keys(statusData.outputs || {}).length === 0) {
+        const outputsRes = await fetch(`/api/sessions/${session_id}/outputs`);
+        const outputsData = outputsRes.ok ? await outputsRes.json() : { outputs: {} };
+        setResult((prev) =>
+          prev ? { ...prev, outputs: outputsData.outputs || {} } : null
+        );
+      }
     } catch (err: any) {
       console.error(err);
       setProcessError(err.message || "Processing failed");
+      setResult(null);
     } finally {
       setIsProcessing(false);
     }
@@ -360,25 +397,28 @@ export function VideoUploadSection() {
 
           {result && (
             <div className="mt-4 w-full max-w-xl rounded-xl border border-border bg-secondary/40 p-4 text-sm text-left">
-              <p className="font-semibold mb-2">3D model generated:</p>
-              <ul className="space-y-1">
-                <li>
-                  Output directory:{" "}
-                  <code className="break-all">{result.outputDir}</code>
-                </li>
-                <li>
-                  Camera poses (transforms.json):{" "}
-                  <code className="break-all">{result.transformsPath}</code>
-                </li>
-                <li>
-                  Point cloud:{" "}
-                  <code className="break-all">{result.pointCloudPath}</code>
-                </li>
-              </ul>
-              <p className="mt-2 text-muted-foreground">
-                Camera pose (including orientation) is used to fuse depth into a
-                global 3D point cloud.
+              <p className="font-semibold mb-2">
+                {result.status === "done" ? "3D model generated:" : `Status: ${result.status}`}
               </p>
+              <p className="mb-2">
+                Session: <code className="break-all">{result.sessionId}</code>
+              </p>
+              {Object.keys(result.outputs).length > 0 && (
+                <ul className="space-y-1">
+                  {Object.entries(result.outputs).map(([key, path]) => (
+                    <li key={key}>
+                      <a
+                        href={`/api/sessions/${result.sessionId}/outputs/${path}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        {key}: {path}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>
