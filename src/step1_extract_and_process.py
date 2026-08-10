@@ -10,9 +10,6 @@ from PIL import Image
 from depth_anything_3.api import DepthAnything3
 import open3d as o3d
 
-# -------------------------------------------------------------------
-# Console encoding fix for Windows (avoid UnicodeEncodeError)
-# -------------------------------------------------------------------
 if sys.stdout and sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 if sys.stderr and sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
@@ -20,7 +17,6 @@ if sys.stderr and sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8"
 
 MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"
 
-# Defaults when run as script (overridable via CLI)
 DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\WhatsApp Video 2026-02-03 at 3.09.03 PM.mp4"
 DEFAULT_OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
 
