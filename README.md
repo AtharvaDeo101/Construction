@@ -8,6 +8,31 @@ fuses them into a point cloud, and reconstructs the space.
 
 ## Pipeline
 
+```mermaid
+flowchart TD
+    V[video.mp4] -->|upload| API["/api/process-video<br/>(Next.js)"]
+    V -->|CLI| S1
+    API --> S1
+
+    subgraph S1 ["Step 1 — extract & process"]
+        F[frames @ 2 FPS] --> DA3[Depth Anything 3<br/>depth + camera poses]
+        DA3 --> RAW[pointcloud/raw_cloud.ply<br/>transforms.json]
+    end
+
+    subgraph S2 ["Step 2 — reconstruction"]
+        DS[voxel downsample<br/>+ outlier removal] --> MESH[mesh/mesh_for_viewer.ply]
+        DS -.WIP.-> POI[Poisson mesh<br/>floor plan]
+    end
+
+    subgraph S3 ["Step 3 — path planning"]
+        PLAN[navigable path] --> OVER[path overlaid<br/>on blueprint]
+    end
+
+    RAW --> DS
+    MESH --> PLAN
+    RAW --> PLAN
+```
+
 | Step | Script | In → Out |
 |------|--------|----------|
 | 1 | `src/step1_extract_and_process.py` | video → frames @2 FPS → DA3 depth + poses → `transforms.json`, `depth/`, `images/`, `pointcloud/raw_cloud.ply` |
