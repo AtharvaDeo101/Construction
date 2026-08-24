@@ -35,10 +35,10 @@ flowchart TD
 
 | Step | Script | In → Out |
 |------|--------|----------|
-| 1 | `src/step1_extract_and_process.py` | video → frames @2 FPS → DA3 depth + poses → `transforms.json`, `depth/`, `images/`, `pointcloud/raw_cloud.ply` |
-| 2 | `src/step2_reconstruction.py` | raw cloud → voxel downsample + outlier removal → `mesh/mesh_for_viewer.ply` |
-| 3 | `src/step3_path_planning.py` | cloud + poses → navigable path, overlaid on the blueprint |
-| — | `src/blueprint.py` | standalone: fuse scan → Poisson mesh → 2D blueprint render |
+| 1 | `backend/step1_extract_and_process.py` | video → frames @2 FPS → DA3 depth + poses → `transforms.json`, `depth/`, `images/`, `pointcloud/raw_cloud.ply` |
+| 2 | `backend/step2_reconstruction.py` | raw cloud → voxel downsample + outlier removal → `mesh/mesh_for_viewer.ply` |
+| 3 | `backend/step3_path_planning.py` | cloud + poses → navigable path, overlaid on the blueprint |
+| — | `backend/blueprint.py` | standalone: fuse scan → Poisson mesh → 2D blueprint render |
 
 Step 2's Poisson mesh, duplicate-structure removal, and floor-plan slice are
 written but currently commented out in `main()`.
@@ -51,10 +51,10 @@ DBSCAN. Everything falls back to CPU if CUDA is missing.
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements
+pip install -r backend/requirements.txt
 ```
 
-`requirements` pins CUDA 13.0 torch wheels — install a matching torch build if
+`backend/requirements.txt` pins CUDA 13.0 torch wheels — install a matching torch build if
 your driver differs. DA3 is installed from git as an editable dep (`depth-anything-3/`).
 
 `.env`:
@@ -68,9 +68,9 @@ HF_TOKEN=<your huggingface token>   # to pull depth-anything/DA3NESTED-GIANT-LAR
 CLI:
 
 ```bash
-python src/step1_extract_and_process.py <video.mp4> data/scan_001
-CONSTRUCT_OUTPUT_DIR=data/scan_001 python src/step2_reconstruction.py
-python src/step3_path_planning.py [save_dir]
+python backend/step1_extract_and_process.py <video.mp4> data/scan_001
+CONSTRUCT_OUTPUT_DIR=data/scan_001 python backend/step2_reconstruction.py
+python backend/step3_path_planning.py [save_dir]
 ```
 
 Both scripts fall back to hardcoded `DEFAULT_*` paths at the top of the file
@@ -92,8 +92,10 @@ real videos.
 ## Layout
 
 ```
-src/         pipeline steps
+backend/     Python pipeline steps + requirements.txt
 frontend/    Next.js app + upload API route
 data/        scans, uploads (gitignored)
 assets/      input videos
+docs/        tech stack notes
+output/      path JSON, animations
 ```

@@ -104,13 +104,13 @@ export async function POST(req: NextRequest) {
     const step1Path = path.join(
       PROJECT_ROOT,
       "..",
-      "src",
+      "backend",
       "step1_extract_and_process.py"
     );
     const step2Path = path.join(
       PROJECT_ROOT,
       "..",
-      "src",
+      "backend",
       "step2_reconstruction.py"
     );
 

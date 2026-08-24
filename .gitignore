@@ -9,3 +9,5 @@ sessions/
 __pycache__/
 *.pyc
 data/
+.venv/
+node_modules/
