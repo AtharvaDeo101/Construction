@@ -22,7 +22,11 @@ DEFAULT_OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
 
 FPS_EXTRACT = 2
 IMG_SIZE = 518
-MINI_BATCH_SIZE = 3
+
+# DA3 resolves depth AND pose in one coordinate frame per inference() call. All frames
+# must go through in a single call or each group lands in its own frame at its own scale.
+# If this OOMs, shrink PROCESS_RES / MODEL_REPO / FPS_EXTRACT -- never split the call.
+PROCESS_RES = 336
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -117,8 +121,8 @@ def run_da3_pipeline(image_paths, output_root):
 
     print("\n" + "=" * 60)
     print(f"Loading {MODEL_REPO}...")
-    print(f"Device: {DEVICE} | Input Size: {IMG_SIZE}x{IMG_SIZE}")
-    print(f"Mini-batch size: {MINI_BATCH_SIZE} frames")
+    print(f"Device: {DEVICE} | Process res: {PROCESS_RES}")
+    print(f"Single-call inference over all {len(image_paths)} frames")
     print("=" * 60 + "\n")
 
     model = (
@@ -130,65 +134,46 @@ def run_da3_pipeline(image_paths, output_root):
         .eval()
     )
 
-    all_depths = []
-    all_extrinsics = []
-    all_intrinsics = []
-    all_confidences = []
+    images = [Image.open(p).convert("RGB") for p in image_paths]
 
-    num_batches = (len(image_paths) + MINI_BATCH_SIZE - 1) // MINI_BATCH_SIZE
+    with torch.no_grad():
+        prediction = model.inference(images, process_res=PROCESS_RES)
 
-    print(f"Processing {len(image_paths)} frames in {num_batches} mini-batches...")
+    depths = prediction.depth  # [N, H, W] float32
+    extrinsics = prediction.extrinsics  # [N, 3, 4]
+    intrinsics = prediction.intrinsics  # [N, 3, 3]
 
-    for batch_idx in range(num_batches):
-        start_idx = batch_idx * MINI_BATCH_SIZE
-        end_idx = min(start_idx + MINI_BATCH_SIZE, len(image_paths))
-
-        batch_paths = image_paths[start_idx:end_idx]
-        print(f"  Batch {batch_idx + 1}/{num_batches}: frames {start_idx} to {end_idx - 1}")
-
-        # Load mini-batch as PIL RGB
-        batch_images = [Image.open(p).convert("RGB") for p in batch_paths]
-
-        # Run inference on this mini-batch
-        with torch.no_grad():
-            prediction = model.inference(
-                batch_images,
-                # input_size=IMG_SIZE,
-            )
-
-        all_depths.append(prediction.depth)  # [N, H, W] float32
-        all_extrinsics.append(prediction.extrinsics)  # [N, 3, 4]
-        all_intrinsics.append(prediction.intrinsics)  # [N, 3, 3]
-        if hasattr(prediction, "conf"):
-            all_confidences.append(prediction.conf)  # [N, H, W]
-
-        del prediction
-        del batch_images
-        if DEVICE == "cuda":
-            torch.cuda.empty_cache()
-        gc.collect()
-
-    print("\nMerging all batches...")
-    depths = np.concatenate(all_depths, axis=0)
-    extrinsics = np.concatenate(all_extrinsics, axis=0)
-    intrinsics = np.concatenate(all_intrinsics, axis=0)
-
-    has_confidence = len(all_confidences) > 0
+    has_confidence = hasattr(prediction, "conf")
     if has_confidence:
-        confidences = np.concatenate(all_confidences, axis=0)
+        confidences = prediction.conf  # [N, H, W]
 
-    # Approximate camera movement magnitude (in w2c translations)
-    cam_positions = extrinsics[:, :3, 3]  # t vectors
-    movement_range = np.linalg.norm(cam_positions.max(axis=0) - cam_positions.min(axis=0))
+    del prediction, images
+    if DEVICE == "cuda":
+        torch.cuda.empty_cache()
+    gc.collect()
 
-    if movement_range < 0.1:  # Less than 10cm total movement
-        print("\nWARNING: Camera positions are nearly identical!")
+    # All poses share one frame now, so a single reference view sits at the origin.
+    # More than one means the call was split somewhere and the geometry is invalid.
+    cam_centers = np.stack(
+        [np.linalg.inv(np.vstack([e, [0, 0, 0, 1]]))[:3, 3] for e in extrinsics]
+    )
+    n_at_origin = int((np.linalg.norm(cam_centers, axis=1) < 0.01).sum())
+    if n_at_origin > 1:
+        print(f"\nWARNING: {n_at_origin} cameras sit at the origin (expected 1).")
+        print("  Poses are not in a shared coordinate frame -- do not trust this cloud.\n")
+
+    # Path length beats bounding-box extent here: a walkthrough that returns near its
+    # start has a small extent but a long path, and overlaid batches inflate extent.
+    path_length = float(np.linalg.norm(np.diff(cam_centers, axis=0), axis=1).sum())
+
+    if path_length < 0.1:  # Less than 10cm of travel
+        print("\nWARNING: Camera barely moves!")
         print("  This may indicate:")
         print("   - Video captured from a fixed tripod (needs translation)")
         print("   - DA3 failed to estimate motion (try more distinctive scene features)")
-        print(f"  Movement detected: {movement_range * 100:.1f} cm\n")
+        print(f"  Path length: {path_length * 100:.1f} cm\n")
     else:
-        print(f"Camera movement detected (w2c translations): {movement_range:.2f} meters")
+        print(f"Camera path length: {path_length:.2f} (DA3 units, scale is arbitrary)")
 
     first_img = Image.open(image_paths[0])
 
@@ -430,11 +415,18 @@ if __name__ == "__main__":
         run_step1(video_path, output_dir)
     except torch.cuda.OutOfMemoryError:
         print("\nCUDA OUT OF MEMORY ERROR")
+        print("  Fix by shrinking, in this order:")
+        print(f"   - PROCESS_RES (now {PROCESS_RES}) -> 392 or 336")
+        print(f"   - MODEL_REPO (now {MODEL_REPO}) -> depth-anything/DA3-LARGE or DA3-BASE")
+        print(f"   - FPS_EXTRACT (now {FPS_EXTRACT}) -> 1, for fewer frames")
+        print("  Do NOT re-introduce mini-batching: it silently corrupts the poses.")
         import traceback
 
         traceback.print_exc()
+        sys.exit(1)  # caller checks the exit code; swallowing this reports a failed scan as success
     except Exception as e:
         print(f"\nERROR: {e}")
         import traceback
 
         traceback.print_exc()
+        sys.exit(1)
