@@ -15,7 +15,9 @@ DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\output"
 # Point Cloud Parameters
 DEPTH_TRUNC = 8.0
 VOXEL_SIZE = 0.015  # Fine detail to capture furniture
-CONFIDENCE_THRESH = 0.5
+# DA3 confidence is unbounded and floored at 1.0, so a <1.0 threshold keeps every pixel.
+# Percentile of the scan's own confidence distribution, as in step1.
+CONFIDENCE_PERCENTILE = 40.0
 
 # Blueprint Style
 BLUEPRINT_BLUE = (13, 71, 161)  # Deep blue background
@@ -36,16 +38,15 @@ def create_output_dirs(output_dir: str):
     os.makedirs(os.path.join(output_dir, "mesh"), exist_ok=True)
     os.makedirs(os.path.join(output_dir, "blueprint"), exist_ok=True)
 
-def depth_to_pointcloud(depth_map, color_img, intrinsic_matrix, confidence_map=None):
+def depth_to_pointcloud(depth_map, color_img, intrinsic_matrix, confidence_map=None,
+                        conf_thresh=None):
     H, W = depth_map.shape
     u, v = np.meshgrid(np.arange(W), np.arange(H))
     u, v, depth = u.flatten(), v.flatten(), depth_map.flatten()
-    
-    if confidence_map is not None:
-        conf = confidence_map.flatten()
-        valid = (depth > 0) & (depth < DEPTH_TRUNC) & (conf > CONFIDENCE_THRESH)
-    else:
-        valid = (depth > 0) & (depth < DEPTH_TRUNC)
+
+    valid = (depth > 0) & (depth < DEPTH_TRUNC)
+    if confidence_map is not None and conf_thresh is not None:
+        valid &= confidence_map.flatten() >= conf_thresh
     
     u, v, depth = u[valid], v[valid], depth[valid]
     
@@ -75,8 +76,18 @@ def fuse_pointclouds(scan_dir: str, output_dir: str):
     frames = transforms['frames']
     print(f"Loading {len(frames)} frames...")
     
+    conf_paths = [f['confidence_path'] for f in frames if f.get('confidence_path')]
+    conf_thresh = None
+    if conf_paths:
+        all_conf = np.concatenate(
+            [np.load(os.path.join(scan_dir, p)).ravel() for p in conf_paths]
+        )
+        conf_thresh = float(np.percentile(all_conf, CONFIDENCE_PERCENTILE))
+        print(f"Confidence cut below {conf_thresh:.3f} (lowest {CONFIDENCE_PERCENTILE:.0f}%)")
+        del all_conf
+
     all_points, all_colors = [], []
-    
+
     for idx, frame in enumerate(frames):
         depth_map = np.load(os.path.join(scan_dir, frame['depth_path']))
         color_img = cv2.imread(os.path.join(scan_dir, frame['file_path']))
@@ -94,7 +105,8 @@ def fuse_pointclouds(scan_dir: str, output_dir: str):
         intrinsic = np.array(frame['intrinsic_matrix'])
         c2w = np.array(frame['transform_matrix'])
         
-        points_cam, colors = depth_to_pointcloud(depth_map, color_img, intrinsic, confidence_map)
+        points_cam, colors = depth_to_pointcloud(depth_map, color_img, intrinsic,
+                                                 confidence_map, conf_thresh)
         points_world = transform_pointcloud(points_cam, c2w)
         
         all_points.append(points_world)

@@ -31,7 +31,16 @@ PROCESS_RES = 336
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 MIN_FRAMES = 3
+# DA3NESTED-GIANT-LARGE outputs depth already in metres, so these bounds are real metres.
 MAX_DEPTH_METERS = 10.0
+
+# DA3 confidence is unbounded and floored at 1.0 -- it is not a 0-1 probability, so any
+# absolute threshold below 1.0 keeps every pixel. Cut by percentile instead.
+# DA3's own exports default to 40, but ~30% of this scan's pixels sit at exactly 1.0
+# (zero-confidence: textureless or out-of-frustum), so 40 barely bites. Measured on
+# scan_001_fixed, 1-99% cloud extent by percentile: 0->14.8x6.3x8.2 m, 40->12.7x6.4x6.0,
+# 60->8.0x6.3x5.3, 75->6.0x6.2x3.0. Raise this if the cloud still looks like fog.
+CONFIDENCE_PERCENTILE = 60.0
 
 
 def extract_frames(video_path: str, out_dir: str, fps: int = 2):
@@ -152,8 +161,9 @@ def run_da3_pipeline(image_paths, output_root):
         torch.cuda.empty_cache()
     gc.collect()
 
-    # All poses share one frame now, so a single reference view sits at the origin.
-    # More than one means the call was split somewhere and the geometry is invalid.
+    # A split call anchors one camera per group at the origin, so several cameras sitting
+    # exactly there means the poses are in unrelated frames. (Zero is normal: the
+    # reference view is normalised but not pinned to identity in the output frame.)
     cam_centers = np.stack(
         [np.linalg.inv(np.vstack([e, [0, 0, 0, 1]]))[:3, 3] for e in extrinsics]
     )
@@ -173,7 +183,10 @@ def run_da3_pipeline(image_paths, output_root):
         print("   - DA3 failed to estimate motion (try more distinctive scene features)")
         print(f"  Path length: {path_length * 100:.1f} cm\n")
     else:
-        print(f"Camera path length: {path_length:.2f} (DA3 units, scale is arbitrary)")
+        # Nested model outputs metres, so this is checkable: path/duration should look
+        # like a walking speed. Wildly off means the metric head mis-scaled the scene.
+        print(f"Camera path length: {path_length:.2f} m")
+        print(f"Scene depth: median {np.median(depths):.2f} m, max {depths.max():.2f} m")
 
     first_img = Image.open(image_paths[0])
 
@@ -265,6 +278,21 @@ def generate_raw_pointcloud(output_dir: str):
 
     print(f"Processing {len(frames)} frames...")
 
+    # One threshold for the whole scan, not per frame: a per-frame percentile would keep
+    # the same fraction of a badly-blurred frame as of a sharp one.
+    conf_paths = [f["confidence_path"] for f in frames if f.get("confidence_path")]
+    conf_thresh = None
+    if conf_paths:
+        all_conf = np.concatenate(
+            [np.load(os.path.join(output_dir, p)).ravel() for p in conf_paths]
+        )
+        conf_thresh = float(np.percentile(all_conf, CONFIDENCE_PERCENTILE))
+        print(
+            f"Confidence: range [{all_conf.min():.2f}, {all_conf.max():.2f}], "
+            f"cutting below {conf_thresh:.3f} (drops lowest {CONFIDENCE_PERCENTILE:.0f}%)"
+        )
+        del all_conf
+
     all_points = []
     all_colors = []
 
@@ -296,10 +324,9 @@ def generate_raw_pointcloud(output_dir: str):
                 conf_map = cv2.resize(conf_map, (width, height), interpolation=cv2.INTER_LINEAR)
 
         # Create valid mask
-        if conf_map is not None:
-            valid_mask = (conf_map > 0.5) & (depth_map > 0.01) & (depth_map < MAX_DEPTH_METERS)
-        else:
-            valid_mask = (depth_map > 0.01) & (depth_map < MAX_DEPTH_METERS)
+        valid_mask = (depth_map > 0.01) & (depth_map < MAX_DEPTH_METERS)
+        if conf_map is not None and conf_thresh is not None:
+            valid_mask &= conf_map >= conf_thresh
 
         # Pixel grid
         v, u = np.meshgrid(np.arange(height), np.arange(width), indexing="ij")
