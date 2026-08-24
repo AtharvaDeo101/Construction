@@ -46,14 +46,10 @@ function runPython(
   extraEnv: Record<string, string> = {}
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    // adjust to your Python/venv path if needed
-    const pythonExe = path.join(
-      PROJECT_ROOT,
-      "..",
-      ".venv",
-      "Scripts",
-      "python.exe"
-    );
+    // Defaults to the Windows venv; PYTHON_BIN overrides it (the Docker image sets it).
+    const pythonExe =
+      process.env.PYTHON_BIN ||
+      path.join(PROJECT_ROOT, "..", ".venv", "Scripts", "python.exe");
     const env = { ...process.env, ...extraEnv };
 
     const proc = spawn(pythonExe, [scriptPath, ...args], {

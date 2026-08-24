@@ -52,7 +52,9 @@ FLOORPLAN_HEIGHT = 0.1
 SLICE_THICKNESS = 0.08
 FLOORPLAN_RESOLUTION = 1024
 
-SHOW_VISUALIZATIONS = True
+# draw_geometries() blocks on a native window, which a container has no display for --
+# CONSTRUCT_SHOW_VIZ=0 turns it off (the Docker image sets it).
+SHOW_VISUALIZATIONS = os.getenv("CONSTRUCT_SHOW_VIZ", "1") != "0"
 VISUALIZATION_MODE = "web"
 
 def to_gpu(arr):

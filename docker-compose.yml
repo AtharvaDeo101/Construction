@@ -1,0 +1,24 @@
+services:
+  construct:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # 6.3 GB of DA3 weights: named volume so a rebuild does not re-download them
+      - hf-cache:/root/.cache/huggingface
+      # scans and uploads stay readable from the host
+      - ./data:/app/data
+      - ./assets:/app/assets
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  hf-cache:

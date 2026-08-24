@@ -1,0 +1,21 @@
+# Host-built artifacts that must not leak into a Linux image
+.venv/
+node_modules/
+frontend/node_modules/
+frontend/.next/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Large or generated; mounted as volumes instead
+data/
+output/
+assets/
+Open3D/
+
+# requirements.txt installs depth_anything_3 from its pinned git commit
+depth-anything-3/
+
+.git/
+.env
+docs/
