@@ -99,3 +99,5 @@ assets/      input videos
 docs/        tech stack notes
 output/      path JSON, animations
 ```
+That's it I guess. Hope ur manchine can handle it 
+
