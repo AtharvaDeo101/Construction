@@ -7,13 +7,13 @@ const word = "3D Model";
 
 const sideImages = [
   {
-    src: "https://images.unsplash.com/photo-1517824806704-9040b037703b?q=80&w=1000",
-    alt: "Mountain hiking adventure",
+    src: "/blueprints-and-tools-on-a-table-with-a-house-photo.webp",
+    alt: "Blueprint ",
     position: "left",
     span: 1,
   },
   {
-    src: "https://images.unsplash.com/photo-1510312305653-8ed496efae75?q=80&w=1000",
+    src: "/engineering-blueprint-detail_0066f46bde.webp",
     alt: "Camping under stars",
     position: "left",
     span: 1,

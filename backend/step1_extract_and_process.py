@@ -15,7 +15,11 @@ if sys.stdout and sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8"
 if sys.stderr and sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE"
+# 0.35B. The 1.40B nested model needs ~6.3GB, which fits neither the 6.25GiB WSL2/Docker
+# RAM cap nor 6.4GB of VRAM. "-1.1" is the retrained checkpoint; plain DA3-LARGE is
+# deprecated upstream. Trade-off: this has no metric-depth head, so depth is RELATIVE --
+# see DEPTH_PERCENTILE below. Only DA3NESTED-* and DA3METRIC-LARGE output metres.
+MODEL_REPO = "depth-anything/DA3-LARGE-1.1"
 
 DEFAULT_VIDEO_PATH = r"C:\Users\deoat\Desktop\Construct\assets\video_input\WhatsApp Video 2026-02-03 at 3.09.03 PM.mp4"
 DEFAULT_OUTPUT_DIR = r"C:\Users\deoat\Desktop\Construct\data\scan_001"
@@ -26,13 +30,15 @@ IMG_SIZE = 518
 # DA3 resolves depth AND pose in one coordinate frame per inference() call. All frames
 # must go through in a single call or each group lands in its own frame at its own scale.
 # If this OOMs, shrink PROCESS_RES / MODEL_REPO / FPS_EXTRACT -- never split the call.
-PROCESS_RES = 336
+PROCESS_RES = 504
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 MIN_FRAMES = 3
-# DA3NESTED-GIANT-LARGE outputs depth already in metres, so these bounds are real metres.
-MAX_DEPTH_METERS = 10.0
+# DA3-LARGE depth is relative, so a fixed metre cutoff is meaningless -- it would keep
+# everything or nothing depending on how the scene happened to be scaled. Cut the far
+# tail by percentile instead, which holds under any scale.
+DEPTH_PERCENTILE = 99.0
 
 # DA3 confidence is unbounded and floored at 1.0 -- it is not a 0-1 probability, so any
 # absolute threshold below 1.0 keeps every pixel. Cut by percentile instead.
@@ -41,6 +47,10 @@ MAX_DEPTH_METERS = 10.0
 # scan_001_fixed, 1-99% cloud extent by percentile: 0->14.8x6.3x8.2 m, 40->12.7x6.4x6.0,
 # 60->8.0x6.3x5.3, 75->6.0x6.2x3.0. Raise this if the cloud still looks like fog.
 CONFIDENCE_PERCENTILE = 60.0
+
+# Points kept in the browser-facing preview cloud. ~200k renders smoothly and lands
+# around 3MB as binary PLY; the full cloud is 4.7M points / 48MB.
+PREVIEW_POINTS = 200_000
 
 
 def extract_frames(video_path: str, out_dir: str, fps: int = 2):
@@ -167,26 +177,30 @@ def run_da3_pipeline(image_paths, output_root):
     cam_centers = np.stack(
         [np.linalg.inv(np.vstack([e, [0, 0, 0, 1]]))[:3, 3] for e in extrinsics]
     )
-    n_at_origin = int((np.linalg.norm(cam_centers, axis=1) < 0.01).sum())
+    # Relative to the trajectory's own size: depth is relative now, so a fixed distance
+    # would mean something different in every scan.
+    dists = np.linalg.norm(cam_centers, axis=1)
+    n_at_origin = int((dists < 0.01 * max(dists.max(), 1e-9)).sum())
     if n_at_origin > 1:
-        print(f"\nWARNING: {n_at_origin} cameras sit at the origin (expected 1).")
+        print(f"\nWARNING: {n_at_origin} cameras sit at the origin (expected 0 or 1).")
         print("  Poses are not in a shared coordinate frame -- do not trust this cloud.\n")
 
     # Path length beats bounding-box extent here: a walkthrough that returns near its
     # start has a small extent but a long path, and overlaid batches inflate extent.
     path_length = float(np.linalg.norm(np.diff(cam_centers, axis=0), axis=1).sum())
 
-    if path_length < 0.1:  # Less than 10cm of travel
+    # Depth is relative, so compare the walk against the scene's own depth scale rather
+    # than an absolute distance: "moved less than 5% of a typical depth" means a tripod.
+    median_depth = float(np.median(depths))
+    if path_length < 0.05 * median_depth:
         print("\nWARNING: Camera barely moves!")
         print("  This may indicate:")
         print("   - Video captured from a fixed tripod (needs translation)")
         print("   - DA3 failed to estimate motion (try more distinctive scene features)")
-        print(f"  Path length: {path_length * 100:.1f} cm\n")
+        print(f"  Path length {path_length:.3f} vs median depth {median_depth:.2f}\n")
     else:
-        # Nested model outputs metres, so this is checkable: path/duration should look
-        # like a walking speed. Wildly off means the metric head mis-scaled the scene.
-        print(f"Camera path length: {path_length:.2f} m")
-        print(f"Scene depth: median {np.median(depths):.2f} m, max {depths.max():.2f} m")
+        print(f"Camera path length: {path_length:.2f} (relative units)")
+        print(f"Scene depth: median {median_depth:.2f}, max {depths.max():.2f} (relative)")
 
     first_img = Image.open(image_paths[0])
 
@@ -197,13 +211,17 @@ def run_da3_pipeline(image_paths, output_root):
         "frames": [],
     }
 
-    print(f"\nSaving outputs for {len(image_paths)} frames...")
+    # One cap for the whole scan, from the scan's own depth distribution.
+    depth_cap = float(np.percentile(depths, DEPTH_PERCENTILE))
+    print(f"\nDepth cap: {depth_cap:.2f} (P{DEPTH_PERCENTILE:g} of scene depth)")
+
+    print(f"Saving outputs for {len(image_paths)} frames...")
 
     for i in range(len(image_paths)):
         idx_str = f"{i:05d}"
 
         depth_map = depths[i]
-        depth_map_clipped = np.clip(depth_map, 0, MAX_DEPTH_METERS)
+        depth_map_clipped = np.clip(depth_map, 0, depth_cap)
         np.save(os.path.join(depth_dir, f"{idx_str}.npy"), depth_map_clipped)
 
         if has_confidence:
@@ -214,7 +232,7 @@ def run_da3_pipeline(image_paths, output_root):
         if len(valid_depths) > 0:
             depth_max = np.percentile(valid_depths, 99.5)
         else:
-            depth_max = MAX_DEPTH_METERS
+            depth_max = depth_cap
 
         depth_norm = np.clip(depth_map_clipped / depth_max, 0, 1)
         depth_viz = (depth_norm * 255).astype(np.uint8)
@@ -278,6 +296,12 @@ def generate_raw_pointcloud(output_dir: str):
 
     print(f"Processing {len(frames)} frames...")
 
+    # Depths were already capped at save time; take the max as the upper bound so the
+    # mask drops points sitting exactly on the cap (the squashed far tail).
+    depth_cap = max(
+        float(np.load(os.path.join(output_dir, f["depth_path"])).max()) for f in frames
+    )
+
     # One threshold for the whole scan, not per frame: a per-frame percentile would keep
     # the same fraction of a badly-blurred frame as of a sharp one.
     conf_paths = [f["confidence_path"] for f in frames if f.get("confidence_path")]
@@ -324,7 +348,7 @@ def generate_raw_pointcloud(output_dir: str):
                 conf_map = cv2.resize(conf_map, (width, height), interpolation=cv2.INTER_LINEAR)
 
         # Create valid mask
-        valid_mask = (depth_map > 0.01) & (depth_map < MAX_DEPTH_METERS)
+        valid_mask = (depth_map > 1e-6) & (depth_map < depth_cap)
         if conf_map is not None and conf_thresh is not None:
             valid_mask &= conf_map >= conf_thresh
 
@@ -387,6 +411,18 @@ def generate_raw_pointcloud(output_dir: str):
 
     print(f"\nSaved raw point cloud: {output_path}")
     print(f"  Points: {len(all_points):,}")
+
+    # The full cloud is ~48MB / 4.7M points -- far too heavy to ship to a browser.
+    # Random subsample, not voxel: a voxel size would be in relative depth units and so
+    # would mean something different in every scan.
+    preview_path = os.path.join(pointcloud_dir, "preview_cloud.ply")
+    preview = (
+        pcd.random_down_sample(PREVIEW_POINTS / len(all_points))
+        if len(all_points) > PREVIEW_POINTS
+        else pcd
+    )
+    o3d.io.write_point_cloud(preview_path, preview, write_ascii=False)
+    print(f"Saved web preview: {preview_path} ({len(preview.points):,} points)")
 
     return output_path
 

@@ -2,6 +2,7 @@
 
 import React, { useRef, useState } from "react";
 import { Camera, Upload, X } from "lucide-react";
+import { PointCloudViewer } from "@/components/point-cloud-viewer";
 
 type OrientationSample = {
   t: number;                 // timestamp (ms since page load)
@@ -434,6 +435,11 @@ export function VideoUploadSection() {
 
           {result && (
             <div className="mt-4 w-full max-w-xl rounded-xl border border-border bg-secondary/40 p-4 text-sm text-left">
+              {result.scanId && (
+                <div className="mb-4">
+                  <PointCloudViewer scanId={result.scanId} />
+                </div>
+              )}
               <p className="font-semibold mb-2">3D model generated:</p>
               <ul className="space-y-1">
                 <li>

@@ -9,9 +9,15 @@ services:
       # scans and uploads stay readable from the host
       - ./data:/app/data
       - ./assets:/app/assets
+      # The image bakes source in via COPY, so without this every backend edit needs a
+      # full rebuild. Frontend changes still do (next build runs at image build time).
+      - ./backend:/app/backend
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
-      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      # Python block-buffers stdout through a pipe, so route.ts sees nothing until the
+      # script exits -- a 20-minute scan looks identical to a hung one without this.
+      - PYTHONUNBUFFERED=1
     deploy:
       resources:
         reservations:

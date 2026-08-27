@@ -13,7 +13,8 @@ DEFAULT_SCAN_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\data\\scan_001"
 DEFAULT_OUTPUT_DIR = r"C:\\Users\\deoat\\Desktop\\Construct\\output"
 
 # Point Cloud Parameters
-DEPTH_TRUNC = 8.0
+# No fixed depth cutoff: DA3-LARGE depth is relative, so step1 already capped it by
+# percentile at save time. Points sitting exactly on that cap are the squashed far tail.
 VOXEL_SIZE = 0.015  # Fine detail to capture furniture
 # DA3 confidence is unbounded and floored at 1.0, so a <1.0 threshold keeps every pixel.
 # Percentile of the scan's own confidence distribution, as in step1.
@@ -39,12 +40,14 @@ def create_output_dirs(output_dir: str):
     os.makedirs(os.path.join(output_dir, "blueprint"), exist_ok=True)
 
 def depth_to_pointcloud(depth_map, color_img, intrinsic_matrix, confidence_map=None,
-                        conf_thresh=None):
+                        conf_thresh=None, depth_cap=None):
     H, W = depth_map.shape
     u, v = np.meshgrid(np.arange(W), np.arange(H))
     u, v, depth = u.flatten(), v.flatten(), depth_map.flatten()
 
-    valid = (depth > 0) & (depth < DEPTH_TRUNC)
+    valid = depth > 1e-6
+    if depth_cap is not None:
+        valid &= depth < depth_cap
     if confidence_map is not None and conf_thresh is not None:
         valid &= confidence_map.flatten() >= conf_thresh
     
@@ -76,6 +79,10 @@ def fuse_pointclouds(scan_dir: str, output_dir: str):
     frames = transforms['frames']
     print(f"Loading {len(frames)} frames...")
     
+    depth_cap = max(
+        float(np.load(os.path.join(scan_dir, f['depth_path'])).max()) for f in frames
+    )
+
     conf_paths = [f['confidence_path'] for f in frames if f.get('confidence_path')]
     conf_thresh = None
     if conf_paths:
@@ -106,7 +113,7 @@ def fuse_pointclouds(scan_dir: str, output_dir: str):
         c2w = np.array(frame['transform_matrix'])
         
         points_cam, colors = depth_to_pointcloud(depth_map, color_img, intrinsic,
-                                                 confidence_map, conf_thresh)
+                                                 confidence_map, conf_thresh, depth_cap)
         points_world = transform_pointcloud(points_cam, c2w)
         
         all_points.append(points_world)
