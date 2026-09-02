@@ -1,6 +1,7 @@
 # Construct
 
-Generate an indoor 3D model from a video walk
+Generate an indoor 3D model from a video walkthrough.
+
 
 
 Point a phone camera around a room, upload the clip, and the pipeline recovers
