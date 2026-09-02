@@ -1,6 +1,7 @@
 # Construct
 
-Generate an indoor 3D model from a video 
+Generate an indoor 3D model from a video walk
+
 
 Point a phone camera around a room, upload the clip, and the pipeline recovers
 per-frame depth + camera poses ([Depth Anything 3](https://github.com/ByteDance-Seed/depth-anything-3)),
